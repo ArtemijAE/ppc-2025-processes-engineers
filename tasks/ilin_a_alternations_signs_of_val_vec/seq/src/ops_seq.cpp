@@ -1,0 +1,47 @@
+#include "ilin_a_alternations_signs_of_val_vec/seq/include/ops_seq.hpp"
+
+#include <vector>
+
+#include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
+
+namespace ilin_a_alternations_signs_of_val_vec {
+
+IlinAAlternationsSignsOfValVecSEQ::IlinAAlternationsSignsOfValVecSEQ(const InType &in) {
+  SetTypeOfTask(GetStaticTypeOfTask());
+  GetInput() = in;
+  GetOutput() = 0;
+}
+
+bool IlinAAlternationsSignsOfValVecSEQ::ValidationImpl() {
+  return !GetInput().empty() && (GetOutput() == 0);
+}
+
+bool IlinAAlternationsSignsOfValVecSEQ::PreProcessingImpl() {
+  return true;
+}
+
+bool IlinAAlternationsSignsOfValVecSEQ::RunImpl() {
+  const std::vector<int> &vec = GetInput();
+  int alternation_count = 0;
+
+  if (vec.size() < 2) {
+    GetOutput() = 0;
+    return true;
+  }
+
+  std::vector<int> temp_vec = vec;
+  for (size_t i = 0; i < temp_vec.size() - 1; ++i) {
+    if ((temp_vec[i] < 0 && temp_vec[i + 1] >= 0) || (temp_vec[i] >= 0 && temp_vec[i + 1] < 0)) {
+      alternation_count++;
+    }
+  }
+
+  GetOutput() = alternation_count;
+  return true;
+}
+
+bool IlinAAlternationsSignsOfValVecSEQ::PostProcessingImpl() {
+  return true;
+}
+
+}  // namespace ilin_a_alternations_signs_of_val_vec
