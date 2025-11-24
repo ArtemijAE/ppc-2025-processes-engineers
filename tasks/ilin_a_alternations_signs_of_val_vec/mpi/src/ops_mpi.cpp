@@ -2,6 +2,7 @@
 
 #include <mpi.h>
 
+#include <cstddef>
 #include <vector>
 
 #include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
@@ -71,7 +72,7 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
   int left_boundary = local_vec.empty() ? 0 : local_vec.front();
   int right_boundary = local_vec.empty() ? 0 : local_vec.back();
 
-  std::vector<int> boundaries(2 * world_size);
+  std::vector<int> boundaries(static_cast<size_t>(2) * world_size);
   MPI_Gather(&left_boundary, 1, MPI_INT, boundaries.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Gather(&right_boundary, 1, MPI_INT, boundaries.data() + world_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
