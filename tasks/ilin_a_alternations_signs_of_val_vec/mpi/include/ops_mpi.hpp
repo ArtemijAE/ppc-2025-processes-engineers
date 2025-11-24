@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
 #include "task/include/task.hpp"
 
@@ -22,9 +24,13 @@ class IlinAAlternationsSignsOfValVecMPI : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  int CountLocalSignChanges(const std::vector<int> &segment);
-  BoundaryInfo GatherEdgeValues(const std::vector<int> &segment);
-  int CountEdgeAlternations(const BoundaryInfo &edges, int total_processes);
+  static int CountLocalSignChanges(const std::vector<int> &segment);
+  static BoundaryInfo GatherEdgeValues(const std::vector<int> &segment);
+  static int CountEdgeAlternations(const BoundaryInfo &edges, int total_processes);
+  static void CalculateDistribution(int data_size, int world_size, std::vector<int> &counts, std::vector<int> &offsets);
+  static void DistributeData(const std::vector<int> &global_data, std::vector<int> &local_data, int world_rank,
+                             int world_size);
+  bool HandleShortArray(int world_rank, int data_size);  // Убрал static!
 };
 
 }  // namespace ilin_a_alternations_signs_of_val_vec

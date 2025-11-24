@@ -3,9 +3,18 @@
 #include <mpi.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <vector>
 
+#include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
+
 namespace ilin_a_alternations_signs_of_val_vec {
+
+namespace {
+constexpr int kRootRank = 0;
+constexpr int kMpiTag = 0;
+constexpr int kMinDataSize = 2;
+}  // namespace
 
 IlinAAlternationsSignsOfValVecMPI::IlinAAlternationsSignsOfValVecMPI(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
@@ -23,13 +32,17 @@ bool IlinAAlternationsSignsOfValVecMPI::PreProcessingImpl() {
 
 int IlinAAlternationsSignsOfValVecMPI::CountLocalSignChanges(const std::vector<int> &segment) {
   int count = 0;
-  if (segment.size() < 2) {
+  const size_t segment_size = segment.size();
+
+  if (segment_size < kMinDataSize) {
     return count;
   }
 
-  for (size_t i = 0; i < segment.size() - 1; ++i) {
-    if ((segment[i] < 0) != (segment[i + 1] < 0)) {
-      count++;
+  for (size_t index = 0; index < segment_size - 1; ++index) {
+    const bool is_negative_current = segment[index] < 0;
+    const bool is_negative_next = segment[index + 1] < 0;
+    if (is_negative_current != is_negative_next) {
+      ++count;
     }
   }
   return count;
@@ -37,72 +50,120 @@ int IlinAAlternationsSignsOfValVecMPI::CountLocalSignChanges(const std::vector<i
 
 BoundaryInfo IlinAAlternationsSignsOfValVecMPI::GatherEdgeValues(const std::vector<int> &segment) {
   BoundaryInfo info;
-  int left_val = segment.empty() ? 0 : segment.front();
-  int right_val = segment.empty() ? 0 : segment.back();
+
+  const int left_val = segment.empty() ? 0 : segment.front();
+  const int right_val = segment.empty() ? 0 : segment.back();
 
   int total_processes = 0;
   MPI_Comm_size(MPI_COMM_WORLD, &total_processes);
 
-  info.all_edges.resize(2 * total_processes);
-  MPI_Gather(&left_val, 1, MPI_INT, info.all_edges.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Gather(&right_val, 1, MPI_INT, info.all_edges.data() + total_processes, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  const size_t edges_size = static_cast<size_t>(2) * static_cast<size_t>(total_processes);
+  info.all_edges.resize(edges_size);
+
+  MPI_Gather(&left_val, 1, MPI_INT, info.all_edges.data(), 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
+  MPI_Gather(&right_val, 1, MPI_INT, info.all_edges.data() + static_cast<size_t>(total_processes), 1, MPI_INT,
+             kRootRank, MPI_COMM_WORLD);
 
   return info;
 }
 
-int IlinAAlternationsSignsOfValVecMPI::CountEdgeAlternations(const BoundaryInfo &edges, int total_processes) {
+int IlinAAlternationsSignsOfValVecMPI::CountEdgeAlternations(const BoundaryInfo &edges, const int total_processes) {
   int count = 0;
-  for (int i = 0; i < total_processes - 1; ++i) {
-    if ((edges.all_edges[total_processes + i] < 0) != (edges.all_edges[i + 1] < 0)) {
-      count++;
+  for (int process_index = 0; process_index < total_processes - 1; ++process_index) {
+    const size_t right_index = static_cast<size_t>(total_processes) + static_cast<size_t>(process_index);
+    const size_t left_index = static_cast<size_t>(process_index) + 1;
+    const int right_edge = edges.all_edges[right_index];
+    const int left_edge = edges.all_edges[left_index];
+    const bool is_negative_right = right_edge < 0;
+    const bool is_negative_left = left_edge < 0;
+    if (is_negative_right != is_negative_left) {
+      ++count;
     }
   }
   return count;
 }
 
-bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
-  int rank, size;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
+void IlinAAlternationsSignsOfValVecMPI::CalculateDistribution(const int data_size, const int world_size,
+                                                              std::vector<int> &counts, std::vector<int> &offsets) {
+  const int base_size = data_size / world_size;
+  const int remainder = data_size % world_size;
+  int current_offset = 0;
 
-  const std::vector<int> &input = GetInput();
-  int data_size = static_cast<int>(input.size());
+  for (int process_index = 0; process_index < world_size; ++process_index) {
+    counts[process_index] = base_size + (process_index < remainder ? 1 : 0);
+    offsets[process_index] = current_offset;
+    current_offset += counts[process_index];
+  }
+}
 
-  if (data_size < 2) {
-    if (rank == 0) {
+void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &global_data,
+                                                       std::vector<int> &local_data, const int world_rank,
+                                                       const int world_size) {
+  if (world_rank == kRootRank) {
+    std::vector<int> counts(world_size);
+    std::vector<int> offsets(world_size);
+    CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
+
+    const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
+    const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
+    std::copy(start_iterator, end_iterator, local_data.begin());
+
+    for (int process_index = 1; process_index < world_size; ++process_index) {
+      const int send_size = counts[process_index];
+      const int *send_data = global_data.data() + offsets[process_index];
+      MPI_Send(send_data, send_size, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
+    }
+  } else {
+    MPI_Status status;
+    MPI_Recv(local_data.data(), static_cast<int>(local_data.size()), MPI_INT, kRootRank, kMpiTag, MPI_COMM_WORLD,
+             &status);
+  }
+}
+
+bool IlinAAlternationsSignsOfValVecMPI::HandleShortArray(const int world_rank, const int data_size) {
+  if (data_size < kMinDataSize) {
+    if (world_rank == kRootRank) {
       GetOutput() = 0;
     }
     MPI_Barrier(MPI_COMM_WORLD);
     return true;
   }
+  return false;
+}
 
-  MPI_Bcast(&data_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
+  int world_rank = 0;
+  int world_size = 0;
 
-  int base = data_size / size;
-  int rem = data_size % size;
-  int local_size = base + (rank < rem ? 1 : 0);
-  std::vector<int> local_data(local_size);
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-  if (rank == 0) {
-    int offset = local_size;
-    for (int i = 1; i < size; ++i) {
-      int proc_size = base + (i < rem ? 1 : 0);
-      MPI_Send(input.data() + offset, proc_size, MPI_INT, i, 0, MPI_COMM_WORLD);
-      offset += proc_size;
-    }
-    std::copy(input.begin(), input.begin() + local_size, local_data.begin());
-  } else {
-    MPI_Recv(local_data.data(), local_size, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  const std::vector<int> &input_data = GetInput();
+  int data_size = static_cast<int>(input_data.size());  // Убрал const для MPI_Bcast
+
+  if (HandleShortArray(world_rank, data_size)) {
+    return true;
   }
 
-  int local_changes = CountLocalSignChanges(local_data);
-  BoundaryInfo edges = GatherEdgeValues(local_data);
+  MPI_Bcast(&data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
+
+  std::vector<int> counts(world_size);
+  std::vector<int> offsets(world_size);
+  CalculateDistribution(data_size, world_size, counts, offsets);
+
+  const int local_size = counts[world_rank];
+  std::vector<int> local_data(static_cast<size_t>(local_size));
+
+  DistributeData(input_data, local_data, world_rank, world_size);
+
+  const int local_changes = CountLocalSignChanges(local_data);
+  const BoundaryInfo edges = GatherEdgeValues(local_data);
 
   int total_changes = 0;
-  MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, kRootRank, MPI_COMM_WORLD);
 
-  if (rank == 0) {
-    total_changes += CountEdgeAlternations(edges, size);
+  if (world_rank == kRootRank) {
+    total_changes += CountEdgeAlternations(edges, world_size);
     GetOutput() = total_changes;
   }
 
