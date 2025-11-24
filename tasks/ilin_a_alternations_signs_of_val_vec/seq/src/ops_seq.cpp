@@ -13,7 +13,7 @@ IlinAAlternationsSignsOfValVecSEQ::IlinAAlternationsSignsOfValVecSEQ(const InTyp
 }
 
 bool IlinAAlternationsSignsOfValVecSEQ::ValidationImpl() {
-  return !GetInput().empty() && (GetOutput() == 0);
+  return GetOutput() == 0;
 }
 
 bool IlinAAlternationsSignsOfValVecSEQ::PreProcessingImpl() {

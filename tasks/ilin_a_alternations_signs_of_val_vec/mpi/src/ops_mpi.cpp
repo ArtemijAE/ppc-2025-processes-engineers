@@ -15,7 +15,7 @@ IlinAAlternationsSignsOfValVecMPI::IlinAAlternationsSignsOfValVecMPI(const InTyp
 }
 
 bool IlinAAlternationsSignsOfValVecMPI::ValidationImpl() {
-  return !GetInput().empty() && (GetOutput() == 0);
+  return GetOutput() == 0;
 }
 
 bool IlinAAlternationsSignsOfValVecMPI::PreProcessingImpl() {
@@ -29,6 +29,14 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
 
   const std::vector<int> &global_vec = GetInput();
   int global_size = static_cast<int>(global_vec.size());
+
+  if (global_size == 0) {
+    if (world_rank == 0) {
+      GetOutput() = 0;
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    return true;
+  }
 
   MPI_Bcast(&global_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
