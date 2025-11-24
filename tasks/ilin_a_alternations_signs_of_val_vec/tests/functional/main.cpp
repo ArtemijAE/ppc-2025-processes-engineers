@@ -1,12 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <random>
 #include <string>
 #include <tuple>
-#include <utility>
-#include <vector>
+#include <array>
 
 #include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
 #include "ilin_a_alternations_signs_of_val_vec/mpi/include/ops_mpi.hpp"

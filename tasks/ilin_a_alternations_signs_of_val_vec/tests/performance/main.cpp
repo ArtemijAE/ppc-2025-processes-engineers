@@ -9,14 +9,14 @@ namespace ilin_a_alternations_signs_of_val_vec {
 
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
   const int kVectorSize_ = 15000000;
-  InType input_data_{};
+  InType input_data_;
 
   void SetUp() override {
     input_data_.clear();
     input_data_.reserve(kVectorSize_);
 
     for (int i = 0; i < kVectorSize_; ++i) {
-      input_data_.push_back((i * 17) % 201 - 100);
+      input_data_.push_back(((i * 17) % 201) - 100);
     }
   }
 
