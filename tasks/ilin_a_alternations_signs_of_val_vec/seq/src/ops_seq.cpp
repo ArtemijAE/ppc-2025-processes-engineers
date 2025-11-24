@@ -29,7 +29,7 @@ bool IlinAAlternationsSignsOfValVecSEQ::RunImpl() {
     return true;
   }
   for (size_t i = 0; i < vec.size() - 1; ++i) {
-    if ((vec[i] ^ vec[i + 1]) < 0) {  
+    if ((vec[i] < 0 && vec[i + 1] >= 0) || (vec[i] >= 0 && vec[i + 1] < 0)) {
       alternation_count++;
     }
   }
