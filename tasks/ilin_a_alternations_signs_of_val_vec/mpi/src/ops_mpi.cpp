@@ -2,10 +2,8 @@
 
 #include <mpi.h>
 
-#include <cstddef>
+#include <algorithm>
 #include <vector>
-
-#include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
 
 namespace ilin_a_alternations_signs_of_val_vec {
 
@@ -23,78 +21,89 @@ bool IlinAAlternationsSignsOfValVecMPI::PreProcessingImpl() {
   return true;
 }
 
+int IlinAAlternationsSignsOfValVecMPI::CountLocalSignChanges(const std::vector<int> &segment) {
+  int count = 0;
+  if (segment.size() < 2) {
+    return count;
+  }
+
+  for (size_t i = 0; i < segment.size() - 1; ++i) {
+    if ((segment[i] < 0) != (segment[i + 1] < 0)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+BoundaryInfo IlinAAlternationsSignsOfValVecMPI::GatherEdgeValues(const std::vector<int> &segment) {
+  BoundaryInfo info;
+  int left_val = segment.empty() ? 0 : segment.front();
+  int right_val = segment.empty() ? 0 : segment.back();
+
+  int total_processes = 0;
+  MPI_Comm_size(MPI_COMM_WORLD, &total_processes);
+
+  info.all_edges.resize(2 * total_processes);
+  MPI_Gather(&left_val, 1, MPI_INT, info.all_edges.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Gather(&right_val, 1, MPI_INT, info.all_edges.data() + total_processes, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  return info;
+}
+
+int IlinAAlternationsSignsOfValVecMPI::CountEdgeAlternations(const BoundaryInfo &edges, int total_processes) {
+  int count = 0;
+  for (int i = 0; i < total_processes - 1; ++i) {
+    if ((edges.all_edges[total_processes + i] < 0) != (edges.all_edges[i + 1] < 0)) {
+      count++;
+    }
+  }
+  return count;
+}
+
 bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
-  int world_rank = 0;
-  int world_size = 0;
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  int rank, size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-  const std::vector<int> &global_vec = GetInput();
-  int global_size = static_cast<int>(global_vec.size());
+  const std::vector<int> &input = GetInput();
+  int data_size = static_cast<int>(input.size());
 
-  if (global_size < 2) {
-    if (world_rank == 0) {
-      GetOutput() = 0;  // +2
+  if (data_size < 2) {
+    if (rank == 0) {
+      GetOutput() = 0;
     }
     MPI_Barrier(MPI_COMM_WORLD);
     return true;
   }
 
-  MPI_Bcast(&global_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&data_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  int local_size = global_size / world_size;
-  int remainder = global_size % world_size;
-  int extra = (world_rank < remainder) ? 1 : 0;
-  std::vector<int> local_vec(local_size + extra);
+  int base = data_size / size;
+  int rem = data_size % size;
+  int local_size = base + (rank < rem ? 1 : 0);
+  std::vector<int> local_data(local_size);
 
-  std::vector<int> counts(world_size);
-  std::vector<int> displs(world_size);
-
-  if (world_rank == 0) {  // +1
-    for (int i = 0; i < world_size; ++i) {
-      counts[i] = local_size + (i < remainder ? 1 : 0);
+  if (rank == 0) {
+    int offset = local_size;
+    for (int i = 1; i < size; ++i) {
+      int proc_size = base + (i < rem ? 1 : 0);
+      MPI_Send(input.data() + offset, proc_size, MPI_INT, i, 0, MPI_COMM_WORLD);
+      offset += proc_size;
     }
-    displs[0] = 0;
-    for (int i = 1; i < world_size; ++i) {  // +2
-      displs[i] = displs[i - 1] + counts[i - 1];
-    }
+    std::copy(input.begin(), input.begin() + local_size, local_data.begin());
+  } else {
+    MPI_Recv(local_data.data(), local_size, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   }
 
-  MPI_Scatterv(const_cast<int *>(global_vec.data()), counts.data(), displs.data(), MPI_INT, local_vec.data(),
-               static_cast<int>(local_vec.size()), MPI_INT, 0, MPI_COMM_WORLD);
+  int local_changes = CountLocalSignChanges(local_data);
+  BoundaryInfo edges = GatherEdgeValues(local_data);
 
-  int local_alternations = 0;
-  size_t loop_limit = (local_vec.size() >= 2) ? local_vec.size() - 1 : 0;
+  int total_changes = 0;
+  MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-  for (size_t i = 0; i < loop_limit; ++i) {
-    bool sign1 = local_vec[i] < 0;
-    bool sign2 = local_vec[i + 1] < 0;
-    if (sign1 != sign2) {
-      local_alternations++;
-    }
-  }
-
-  int left_boundary = local_vec.empty() ? 0 : local_vec.front();
-  int right_boundary = local_vec.empty() ? 0 : local_vec.back();
-
-  std::vector<int> boundaries(static_cast<size_t>(2) * world_size);
-  MPI_Gather(&left_boundary, 1, MPI_INT, boundaries.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Gather(&right_boundary, 1, MPI_INT, boundaries.data() + world_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-  int total_alternations = 0;
-  MPI_Reduce(&local_alternations, &total_alternations, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-
-  if (world_rank == 0) {                        // +1
-    for (int i = 0; i < world_size - 1; ++i) {  // +2
-      int right_of_i = boundaries[world_size + i];
-      int left_of_next = boundaries[i + 1];
-      bool sign1 = right_of_i < 0;
-      bool sign2 = left_of_next < 0;
-      if (sign1 != sign2) {
-        total_alternations++;  // +1
-      }
-    }
-    GetOutput() = total_alternations;
+  if (rank == 0) {
+    total_changes += CountEdgeAlternations(edges, size);
+    GetOutput() = total_changes;
   }
 
   MPI_Barrier(MPI_COMM_WORLD);
