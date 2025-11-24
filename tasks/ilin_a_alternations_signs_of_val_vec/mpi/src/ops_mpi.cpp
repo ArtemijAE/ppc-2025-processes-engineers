@@ -30,9 +30,9 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
   const std::vector<int> &global_vec = GetInput();
   int global_size = static_cast<int>(global_vec.size());
 
-  if (global_size == 0) {
+  if (global_size < 2) {
     if (world_rank == 0) {
-      GetOutput() = 0;
+      GetOutput() = 0;  
     }
     MPI_Barrier(MPI_COMM_WORLD);
     return true;
@@ -55,13 +55,17 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
     }
   }
 
-  MPI_Scatterv(global_size > 0 ? const_cast<int *>(global_vec.data()) : nullptr, counts.data(), displs.data(), MPI_INT,
+  MPI_Scatterv(const_cast<int *>(global_vec.data()), counts.data(), displs.data(), MPI_INT,
                local_vec.data(), static_cast<int>(local_vec.size()), MPI_INT, 0, MPI_COMM_WORLD);
 
   int local_alternations = 0;
-  for (size_t i = 0; i < local_vec.size() - 1; ++i) {
-    if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
-      local_alternations++;
+  
+  if (local_vec.size() >= 2) {
+    for (size_t i = 0; i < local_vec.size() - 1; ++i) {
+      if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || 
+          (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
+        local_alternations++;
+      }
     }
   }
 
@@ -79,7 +83,6 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
     for (int i = 0; i < world_size - 1; ++i) {
       int right_of_i = boundaries[world_size + i];
       int left_of_next = boundaries[i + 1];
-
       if ((right_of_i < 0 && left_of_next >= 0) || (right_of_i >= 0 && left_of_next < 0)) {
         total_alternations++;
       }
