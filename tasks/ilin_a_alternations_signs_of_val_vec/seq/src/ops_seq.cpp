@@ -1,7 +1,7 @@
 #include "ilin_a_alternations_signs_of_val_vec/seq/include/ops_seq.hpp"
 
-#include <vector>
 #include <cstddef>
+#include <vector>
 
 #include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
 
