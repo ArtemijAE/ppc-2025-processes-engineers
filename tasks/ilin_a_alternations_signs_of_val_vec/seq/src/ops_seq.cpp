@@ -28,10 +28,8 @@ bool IlinAAlternationsSignsOfValVecSEQ::RunImpl() {
     GetOutput() = 0;
     return true;
   }
-
-  std::vector<int> temp_vec = vec;
-  for (size_t i = 0; i < temp_vec.size() - 1; ++i) {
-    if ((temp_vec[i] < 0 && temp_vec[i + 1] >= 0) || (temp_vec[i] >= 0 && temp_vec[i + 1] < 0)) {
+  for (size_t i = 0; i < vec.size() - 1; ++i) {
+    if ((vec[i] ^ vec[i + 1]) < 0) {  
       alternation_count++;
     }
   }
