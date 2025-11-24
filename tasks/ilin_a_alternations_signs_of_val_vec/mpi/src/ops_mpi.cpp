@@ -32,7 +32,7 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
 
   if (global_size < 2) {
     if (world_rank == 0) {
-      GetOutput() = 0;  
+      GetOutput() = 0;
     }
     MPI_Barrier(MPI_COMM_WORLD);
     return true;
@@ -55,15 +55,14 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
     }
   }
 
-  MPI_Scatterv(const_cast<int *>(global_vec.data()), counts.data(), displs.data(), MPI_INT,
-               local_vec.data(), static_cast<int>(local_vec.size()), MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Scatterv(const_cast<int *>(global_vec.data()), counts.data(), displs.data(), MPI_INT, local_vec.data(),
+               static_cast<int>(local_vec.size()), MPI_INT, 0, MPI_COMM_WORLD);
 
   int local_alternations = 0;
-  
+
   if (local_vec.size() >= 2) {
     for (size_t i = 0; i < local_vec.size() - 1; ++i) {
-      if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || 
-          (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
+      if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
         local_alternations++;
       }
     }
