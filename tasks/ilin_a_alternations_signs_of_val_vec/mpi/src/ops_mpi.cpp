@@ -104,14 +104,18 @@ void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &g
     std::vector<int> offsets(world_size);
     CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
 
-    const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
-    const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
-    std::copy(start_iterator, end_iterator, local_data.begin());
+    if (!global_data.empty()) {
+      const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
+      const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
+      std::copy(start_iterator, end_iterator, local_data.begin());
+    }
 
     for (int process_index = 1; process_index < world_size; ++process_index) {
       const int send_size = counts[process_index];
-      const int *send_data = global_data.data() + offsets[process_index];
-      MPI_Send(send_data, send_size, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
+      if (send_size > 0 && !global_data.empty()) {
+        const int *send_data = global_data.data() + offsets[process_index];
+        MPI_Send(send_data, send_size, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
+      }
     }
   } else {
     MPI_Status status;
@@ -139,7 +143,7 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
   const std::vector<int> &input_data = GetInput();
-  int data_size = static_cast<int>(input_data.size());  // Убрал const для MPI_Bcast
+  int data_size = static_cast<int>(input_data.size());
 
   if (HandleShortArray(world_rank, data_size)) {
     return true;
