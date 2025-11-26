@@ -87,6 +87,34 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
   ExecuteTest(GetParam());
 }
 
+TEST_F(IlinARunFuncTestsProcesses, EmptyVector) {
+  std::vector<int> input = {};
+  IlinAAlternationsSignsOfValVecMPI task(input);
+  ASSERT_TRUE(task.Run());
+  EXPECT_EQ(task.GetOutput(), 0);
+}
+
+TEST_F(IlinARunFuncTestsProcesses, SingleElement) {
+  std::vector<int> input = {5};
+  IlinAAlternationsSignsOfValVecMPI task(input);
+  ASSERT_TRUE(task.Run());
+  EXPECT_EQ(task.GetOutput(), 0);
+}
+
+TEST_F(IlinARunFuncTestsProcesses, SingleProcessNoBoundaries) {
+  std::vector<int> input = {1, -1, 2, -2};
+  IlinAAlternationsSignsOfValVecMPI task(input);
+  ASSERT_TRUE(task.Run());
+  EXPECT_GT(task.GetOutput(), 0);
+}
+
+TEST_F(IlinARunFuncTestsProcesses, NoBoundaryAlternations) {
+  std::vector<int> input = {1, 2, 3, 4, 5, 6};
+  IlinAAlternationsSignsOfValVecMPI task(input);
+  ASSERT_TRUE(task.Run());
+  EXPECT_EQ(task.GetOutput(), 0);
+}
+
 const std::array<TestType, 12> kTestParam = {
     std::make_tuple(10, "alternating"),   std::make_tuple(100, "alternating"),  std::make_tuple(1000, "alternating"),
     std::make_tuple(10, "all_positive"),  std::make_tuple(100, "all_positive"), std::make_tuple(10, "all_negative"),
