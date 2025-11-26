@@ -5,7 +5,6 @@
 #include <random>
 #include <string>
 #include <tuple>
-#include <vector>
 
 #include "ilin_a_alternations_signs_of_val_vec/common/include/common.hpp"
 #include "ilin_a_alternations_signs_of_val_vec/mpi/include/ops_mpi.hpp"
