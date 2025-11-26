@@ -89,7 +89,7 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
 }
 }  // namespace
 
-TEST(IlinAMPICoverage, EmptyVector) {
+TEST(IlinARunFuncTestsProcesses, EmptyVector) {
   std::vector<int> input = {};
   ilin_a_alternations_signs_of_val_vec::IlinAAlternationsSignsOfValVecMPI task(input);
   ASSERT_TRUE(task.Validation());
@@ -99,7 +99,7 @@ TEST(IlinAMPICoverage, EmptyVector) {
   EXPECT_EQ(task.GetOutput(), 0);
 }
 
-TEST(IlinAMPICoverage, SingleElement) {
+TEST(IlinARunFuncTestsProcesses, SingleElement) {
   std::vector<int> input = {5};
   ilin_a_alternations_signs_of_val_vec::IlinAAlternationsSignsOfValVecMPI task(input);
   ASSERT_TRUE(task.Validation());
@@ -109,7 +109,7 @@ TEST(IlinAMPICoverage, SingleElement) {
   EXPECT_EQ(task.GetOutput(), 0);
 }
 
-TEST(IlinAMPICoverage, SingleProcessNoBoundaries) {
+TEST(IlinARunFuncTestsProcesses, SingleProcessNoBoundaries) {
   std::vector<int> input = {1, -1, 2, -2};
   ilin_a_alternations_signs_of_val_vec::IlinAAlternationsSignsOfValVecMPI task(input);
   ASSERT_TRUE(task.Validation());
@@ -119,7 +119,7 @@ TEST(IlinAMPICoverage, SingleProcessNoBoundaries) {
   EXPECT_GT(task.GetOutput(), 0);
 }
 
-TEST(IlinAMPICoverage, NoBoundaryAlternations) {
+TEST(IlinARunFuncTestsProcesses, NoBoundaryAlternations) {
   std::vector<int> input = {1, 2, 3, 4, 5, 6};
   ilin_a_alternations_signs_of_val_vec::IlinAAlternationsSignsOfValVecMPI task(input);
   ASSERT_TRUE(task.Validation());
