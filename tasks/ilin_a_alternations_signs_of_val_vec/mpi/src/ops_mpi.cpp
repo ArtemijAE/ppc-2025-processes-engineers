@@ -104,7 +104,7 @@ void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &g
     std::vector<int> offsets(world_size);
     CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
 
-    if (!global_data.empty()) {
+    if (counts[kRootRank] > 0 && !global_data.empty()) {
       const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
       const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
       std::copy(start_iterator, end_iterator, local_data.begin());
@@ -115,17 +115,22 @@ void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &g
       if (send_size > 0 && !global_data.empty()) {
         const int *send_data = global_data.data() + offsets[process_index];
         MPI_Send(send_data, send_size, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
+      } else if (send_size == 0) {
+        MPI_Send(nullptr, 0, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
       }
     }
   } else {
     MPI_Status status;
-    MPI_Recv(local_data.data(), static_cast<int>(local_data.size()), MPI_INT, kRootRank, kMpiTag, MPI_COMM_WORLD,
-             &status);
+    int recv_size = static_cast<int>(local_data.size());
+    MPI_Recv(local_data.data(), recv_size, MPI_INT, kRootRank, kMpiTag, MPI_COMM_WORLD, &status);
   }
 }
 
 bool IlinAAlternationsSignsOfValVecMPI::HandleShortArray(const int world_rank, const int data_size) {
-  if (data_size < kMinDataSize) {
+  int broadcast_data_size = data_size;
+  MPI_Bcast(&broadcast_data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
+
+  if (broadcast_data_size < kMinDataSize) {
     if (world_rank == kRootRank) {
       GetOutput() = 0;
     }
@@ -149,8 +154,6 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
     return true;
   }
 
-  MPI_Bcast(&data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
-
   std::vector<int> counts(world_size);
   std::vector<int> offsets(world_size);
   CalculateDistribution(data_size, world_size, counts, offsets);
@@ -161,6 +164,7 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
   DistributeData(input_data, local_data, world_rank, world_size);
 
   const int local_changes = CountLocalSignChanges(local_data);
+
   const BoundaryInfo edges = GatherEdgeValues(local_data);
 
   int total_changes = 0;
