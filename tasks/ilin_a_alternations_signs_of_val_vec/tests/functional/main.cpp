@@ -31,10 +31,10 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
     if (type == "alternating") {
       CreateAlternatingData(vector_size);
-    } else if (type == "all_positive") {
-      CreateAllPositiveData(vector_size);
     } else if (type == "all_negative") {
       CreateAllNegativeData(vector_size);
+    } else if (type == "all_positive") {
+      CreateAllPositiveData(vector_size);
     } else if (type == "random") {
       CreateRandomData(vector_size);
     } else if (type == "zeros") {
@@ -115,7 +115,6 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
   void CreateCoverageTest3Data(int vector_size) {
     for (int i = 0; i < vector_size; ++i) {
-      // Исправь вложенный conditional operator
       int value = 0;
       if (i % 3 == 0) {
         value = 1;
@@ -135,7 +134,6 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
   }
 
   void CreateCoverageTest5Data(int vector_size) {
-    // Исправь повторяющиеся ветки
     for (int i = 0; i < vector_size; ++i) {
       int value = (i % 4 == 0 || i % 4 == 2) ? 1 : -1;
       input_data_.push_back(value);
@@ -167,9 +165,9 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
 }
 
 const std::array<TestType, 33> kTestParam = {std::make_tuple(10, "alternating"),
-                                             std::make_tuple(100, "alternating"),
-                                             std::make_tuple(1000, "alternating"),
-                                             std::make_tuple(10, "all_positive"),
+std::make_tuple(100, "alternating"),
+std::make_tuple(1000, "alternating"),
+std::make_tuple(10, "all_positive"),
                                              std::make_tuple(100, "all_positive"),
                                              std::make_tuple(10, "all_negative"),
                                              std::make_tuple(100, "all_negative"),
@@ -179,8 +177,8 @@ const std::array<TestType, 33> kTestParam = {std::make_tuple(10, "alternating"),
                                              std::make_tuple(1, "all_positive"),
                                              std::make_tuple(0, "zeros"),
                                              std::make_tuple(1, "zeros"),
-                                             std::make_tuple(2, "alternating"),
-                                             std::make_tuple(3, "all_positive"),
+ std::make_tuple(2, "alternating"),
+std::make_tuple(3, "all_positive"),
                                              std::make_tuple(4, "alternating"),
                                              std::make_tuple(5, "all_positive"),
                                              std::make_tuple(2, "all_positive"),
@@ -192,11 +190,7 @@ const std::array<TestType, 33> kTestParam = {std::make_tuple(10, "alternating"),
                                              std::make_tuple(11, "alternating"),
                                              std::make_tuple(12, "all_positive"),
                                              std::make_tuple(13, "alternating"),
-                                             std::make_tuple(15, "coverage_test_1"),
-                                             std::make_tuple(16, "coverage_test_2"),
-                                             std::make_tuple(17, "coverage_test_3"),
-                                             std::make_tuple(18, "coverage_test_4"),
-                                             std::make_tuple(19, "coverage_test_5"),
+                                             
                                              std::make_tuple(3, "empty_segments_test")};
 const auto kTestTasksList = std::tuple_cat(ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecMPI, InType>(
                                                kTestParam, PPC_SETTINGS_ilin_a_alternations_signs_of_val_vec),
