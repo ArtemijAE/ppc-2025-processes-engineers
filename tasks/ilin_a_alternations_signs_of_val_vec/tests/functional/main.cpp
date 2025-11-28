@@ -154,7 +154,6 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     return input_data_;
   }
 
- private:
   InType input_data_;
 };
 
