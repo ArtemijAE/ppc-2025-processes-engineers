@@ -88,14 +88,14 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
   ExecuteTest(GetParam());
 }
 
-const std::array<TestType, 16> kTestParam = {
+const std::array<TestType, 21> kTestParam = {
     std::make_tuple(10, "alternating"),   std::make_tuple(100, "alternating"),  std::make_tuple(1000, "alternating"),
     std::make_tuple(10, "all_positive"),  std::make_tuple(100, "all_positive"), std::make_tuple(10, "all_negative"),
     std::make_tuple(100, "all_negative"), std::make_tuple(50, "random"),        std::make_tuple(500, "random"),
     std::make_tuple(10, "zeros"),         std::make_tuple(1, "all_positive"),   std::make_tuple(0, "all_positive"),
-    std::make_tuple(0, "zeros"),          std::make_tuple(1, "zeros"),          std::make_tuple(3, "all_positive"),
-    std::make_tuple(2, "alternating")};
-
+    std::make_tuple(0, "zeros"),          std::make_tuple(1, "zeros"),          std::make_tuple(2, "alternating"),
+    std::make_tuple(3, "all_positive"),   std::make_tuple(4, "alternating"),    std::make_tuple(5, "all_positive"),
+    std::make_tuple(2, "all_positive"),   std::make_tuple(3, "alternating")};
 const auto kTestTasksList = std::tuple_cat(ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecMPI, InType>(
                                                kTestParam, PPC_SETTINGS_ilin_a_alternations_signs_of_val_vec),
                                            ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecSEQ, InType>(
