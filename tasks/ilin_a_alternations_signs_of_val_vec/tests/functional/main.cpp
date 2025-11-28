@@ -67,6 +67,39 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
           input_data_.push_back(-i - 1);
         }
       }
+    } else if (type == "coverage_test_1") {
+      for (int i = 0; i < vector_size; ++i) {
+        input_data_.push_back(i % 2 == 0 ? 1 : -1);
+      }
+    } else if (type == "coverage_test_2") {
+      for (int i = 0; i < vector_size; ++i) {
+        input_data_.push_back(i + 1);
+      }
+    } else if (type == "coverage_test_3") {
+      for (int i = 0; i < vector_size; ++i) {
+        input_data_.push_back(i % 3 == 0 ? 1 : (i % 3 == 1 ? -1 : 0));
+      }
+    } else if (type == "coverage_test_4") {
+      for (int i = 0; i < vector_size; ++i) {
+        input_data_.push_back(i % 2 == 0 ? 100 : -100);
+      }
+    } else if (type == "coverage_test_5") {
+      for (int i = 0; i < vector_size; ++i) {
+        if (i % 4 == 0) {
+          input_data_.push_back(1);
+        } else if (i % 4 == 1) {
+          input_data_.push_back(-1);
+        } else if (i % 4 == 2) {
+          input_data_.push_back(1);
+        } else {
+          input_data_.push_back(-1);
+        }
+      }
+    } else if (type == "empty_segments_test") {
+      // Минимальный массив чтобы гарантировать пустые сегменты с 4+ процессами
+      for (int i = 0; i < vector_size; ++i) {
+        input_data_.push_back(i + 1);
+      }
     }
   }
 
@@ -88,16 +121,38 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
   ExecuteTest(GetParam());
 }
 
-const std::array<TestType, 27> kTestParam = {
-    std::make_tuple(10, "alternating"),   std::make_tuple(100, "alternating"),  std::make_tuple(1000, "alternating"),
-    std::make_tuple(10, "all_positive"),  std::make_tuple(100, "all_positive"), std::make_tuple(10, "all_negative"),
-    std::make_tuple(100, "all_negative"), std::make_tuple(50, "random"),        std::make_tuple(500, "random"),
-    std::make_tuple(10, "zeros"),         std::make_tuple(1, "all_positive"),   std::make_tuple(0, "zeros"),
-    std::make_tuple(1, "zeros"),          std::make_tuple(2, "alternating"),    std::make_tuple(3, "all_positive"),
-    std::make_tuple(4, "alternating"),    std::make_tuple(5, "all_positive"),   std::make_tuple(2, "all_positive"),
-    std::make_tuple(3, "alternating"),    std::make_tuple(6, "alternating"),    std::make_tuple(7, "alternating"),
-    std::make_tuple(8, "all_positive"),   std::make_tuple(9, "all_positive"),   std::make_tuple(11, "alternating"),
-    std::make_tuple(12, "all_positive"),  std::make_tuple(13, "alternating")};
+const std::array<TestType, 33> kTestParam = {std::make_tuple(10, "alternating"),
+                                             std::make_tuple(100, "alternating"),
+                                             std::make_tuple(1000, "alternating"),
+                                             std::make_tuple(10, "all_positive"),
+                                             std::make_tuple(100, "all_positive"),
+                                             std::make_tuple(10, "all_negative"),
+                                             std::make_tuple(100, "all_negative"),
+                                             std::make_tuple(50, "random"),
+                                             std::make_tuple(500, "random"),
+                                             std::make_tuple(10, "zeros"),
+                                             std::make_tuple(1, "all_positive"),
+                                             std::make_tuple(0, "zeros"),
+                                             std::make_tuple(1, "zeros"),
+                                             std::make_tuple(2, "alternating"),
+                                             std::make_tuple(3, "all_positive"),
+                                             std::make_tuple(4, "alternating"),
+                                             std::make_tuple(5, "all_positive"),
+                                             std::make_tuple(2, "all_positive"),
+                                             std::make_tuple(3, "alternating"),
+                                             std::make_tuple(6, "alternating"),
+                                             std::make_tuple(7, "alternating"),
+                                             std::make_tuple(8, "all_positive"),
+                                             std::make_tuple(9, "all_positive"),
+                                             std::make_tuple(11, "alternating"),
+                                             std::make_tuple(12, "all_positive"),
+                                             std::make_tuple(13, "alternating"),
+                                             std::make_tuple(15, "coverage_test_1"),
+                                             std::make_tuple(16, "coverage_test_2"),
+                                             std::make_tuple(17, "coverage_test_3"),
+                                             std::make_tuple(18, "coverage_test_4"),
+                                             std::make_tuple(19, "coverage_test_5"),
+                                             std::make_tuple(3, "empty_segments_test")};
 const auto kTestTasksList = std::tuple_cat(ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecMPI, InType>(
                                                kTestParam, PPC_SETTINGS_ilin_a_alternations_signs_of_val_vec),
                                            ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecSEQ, InType>(
