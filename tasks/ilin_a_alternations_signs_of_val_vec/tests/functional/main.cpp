@@ -30,76 +30,121 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     input_data_.clear();
 
     if (type == "alternating") {
-      // Чередующиеся знаки: +, -, +, -, ...
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i % 2 == 0 ? i + 1 : -i - 1);
-      }
+      CreateAlternatingData(vector_size);
     } else if (type == "all_positive") {
-      // Все положительные
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i + 1);
-      }
+      CreateAllPositiveData(vector_size);
     } else if (type == "all_negative") {
-      // Все отрицательные
-      for (int i = 0; i < vector_size; ++i) {
+      CreateAllNegativeData(vector_size);
+    } else if (type == "random") {
+      CreateRandomData(vector_size);
+    } else if (type == "zeros") {
+      CreateZerosData(vector_size);
+    } else if (type == "mixed") {
+      CreateMixedData(vector_size);
+    } else if (type == "coverage_test_1") {
+      CreateCoverageTest1Data(vector_size);
+    } else if (type == "coverage_test_2") {
+      CreateCoverageTest2Data(vector_size);
+    } else if (type == "coverage_test_3") {
+      CreateCoverageTest3Data(vector_size);
+    } else if (type == "coverage_test_4") {
+      CreateCoverageTest4Data(vector_size);
+    } else if (type == "coverage_test_5") {
+      CreateCoverageTest5Data(vector_size);
+    } else if (type == "empty_segments_test") {
+      CreateEmptySegmentsTestData(vector_size);
+    }
+  }
+
+ private:
+  void CreateAlternatingData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i % 2 == 0 ? i + 1 : -i - 1);
+    }
+  }
+
+  void CreateAllPositiveData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i + 1);
+    }
+  }
+
+  void CreateAllNegativeData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(-i - 1);
+    }
+  }
+
+  void CreateRandomData(int vector_size) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(-100, 100);
+
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(dis(gen));
+    }
+  }
+
+  void CreateZerosData(int vector_size) {
+    input_data_.resize(vector_size, 0);
+  }
+
+  void CreateMixedData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      if (i % 3 == 0) {
+        input_data_.push_back(0);
+      } else if (i % 3 == 1) {
+        input_data_.push_back(i + 1);
+      } else {
         input_data_.push_back(-i - 1);
       }
-    } else if (type == "random") {
-      // Случайные значения
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<> dis(-100, 100);
+    }
+  }
 
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(dis(gen));
+  void CreateCoverageTest1Data(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i % 2 == 0 ? 1 : -1);
+    }
+  }
+
+  void CreateCoverageTest2Data(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i + 1);
+    }
+  }
+
+  void CreateCoverageTest3Data(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      // Исправь вложенный conditional operator
+      int value = 0;
+      if (i % 3 == 0) {
+        value = 1;
+      } else if (i % 3 == 1) {
+        value = -1;
+      } else {
+        value = 0;
       }
-    } else if (type == "zeros") {
-      // Нули
-      input_data_.resize(vector_size, 0);
-    } else if (type == "mixed") {
-      // Смешанные с нулями
-      for (int i = 0; i < vector_size; ++i) {
-        if (i % 3 == 0) {
-          input_data_.push_back(0);
-        } else if (i % 3 == 1) {
-          input_data_.push_back(i + 1);
-        } else {
-          input_data_.push_back(-i - 1);
-        }
-      }
-    } else if (type == "coverage_test_1") {
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i % 2 == 0 ? 1 : -1);
-      }
-    } else if (type == "coverage_test_2") {
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i + 1);
-      }
-    } else if (type == "coverage_test_3") {
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i % 3 == 0 ? 1 : (i % 3 == 1 ? -1 : 0));
-      }
-    } else if (type == "coverage_test_4") {
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i % 2 == 0 ? 100 : -100);
-      }
-    } else if (type == "coverage_test_5") {
-      for (int i = 0; i < vector_size; ++i) {
-        if (i % 4 == 0) {
-          input_data_.push_back(1);
-        } else if (i % 4 == 1) {
-          input_data_.push_back(-1);
-        } else if (i % 4 == 2) {
-          input_data_.push_back(1);
-        } else {
-          input_data_.push_back(-1);
-        }
-      }
-    } else if (type == "empty_segments_test") {
-      // Минимальный массив чтобы гарантировать пустые сегменты с 4+ процессами
-      for (int i = 0; i < vector_size; ++i) {
-        input_data_.push_back(i + 1);
-      }
+      input_data_.push_back(value);
+    }
+  }
+
+  void CreateCoverageTest4Data(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i % 2 == 0 ? 100 : -100);
+    }
+  }
+
+  void CreateCoverageTest5Data(int vector_size) {
+    // Исправь повторяющиеся ветки
+    for (int i = 0; i < vector_size; ++i) {
+      int value = (i % 4 == 0 || i % 4 == 2) ? 1 : -1;
+      input_data_.push_back(value);
+    }
+  }
+
+  void CreateEmptySegmentsTestData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i + 1);
     }
   }
 
