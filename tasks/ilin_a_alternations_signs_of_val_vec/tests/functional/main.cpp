@@ -31,16 +31,18 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
     if (type == "alternating") {
       CreateAlternatingData(vector_size);
-    } else if (type == "mixed_alternating") {
-      CreateMixedAlternatingData(vector_size);
     } else if (type == "all_positive") {
       CreateAllPositiveData(vector_size);
-    } else if (type == "with_zeros") {
-      CreateWithZerosData(vector_size);
-    } else if (type == "random_large") {
-      CreateRandomLargeData(vector_size);
+    } else if (type == "all_negative") {
+      CreateAllNegativeData(vector_size);
+    } else if (type == "random") {
+      CreateRandomData(vector_size);
     } else if (type == "zeros") {
       CreateZerosData(vector_size);
+    } else if (type == "mixed") {
+      CreateMixedData(vector_size);
+    } else if (type == "empty_segments_test") {
+      CreateEmptySegmentsTestData(vector_size);
     }
   }
 
@@ -57,49 +59,41 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     }
   }
 
-  void CreateZerosData(int vector_size) {
-    input_data_.resize(vector_size, 0);
-  }
-
-  void CreateMixedAlternatingData(int vector_size) {
+  void CreateAllNegativeData(int vector_size) {
     for (int i = 0; i < vector_size; ++i) {
-      if (i % 4 == 0) {
-        input_data_.push_back(5 + i);
-      } else if (i % 4 == 1) {
-        input_data_.push_back(6 + i);
-      } else if (i % 4 == 2) {
-        input_data_.push_back(-7 - i);
-      } else {
-        input_data_.push_back(8 + i);
-      }
+      input_data_.push_back(-i - 1);
     }
   }
 
-  void CreateWithZerosData(int vector_size) {
-    for (int i = 0; i < vector_size; ++i) {
-      if (i % 6 == 0) {
-        input_data_.push_back(5);
-      } else if (i % 6 == 1) {
-        input_data_.push_back(0);
-      } else if (i % 6 == 2) {
-        input_data_.push_back(-7);
-      } else if (i % 6 == 3) {
-        input_data_.push_back(1);
-      } else if (i % 6 == 4) {
-        input_data_.push_back(0);
-      } else {
-        input_data_.push_back(9);
-      }
-    }
-  }
-
-  void CreateRandomLargeData(int vector_size) {
+  void CreateRandomData(int vector_size) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(-100, 100);
 
     for (int i = 0; i < vector_size; ++i) {
       input_data_.push_back(dis(gen));
+    }
+  }
+
+  void CreateZerosData(int vector_size) {
+    input_data_.resize(vector_size, 0);
+  }
+
+  void CreateMixedData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      if (i % 3 == 0) {
+        input_data_.push_back(0);
+      } else if (i % 3 == 1) {
+        input_data_.push_back(i + 1);
+      } else {
+        input_data_.push_back(-i - 1);
+      }
+    }
+  }
+
+  void CreateEmptySegmentsTestData(int vector_size) {
+    for (int i = 0; i < vector_size; ++i) {
+      input_data_.push_back(i + 1);
     }
   }
 
@@ -120,10 +114,13 @@ TEST_P(IlinARunFuncTestsProcesses, AlternationsSigns) {
   ExecuteTest(GetParam());
 }
 
-const std::array<TestType, 8> kTestParam = {
-    std::make_tuple(4, "alternating"),  std::make_tuple(5, "mixed_alternating"), std::make_tuple(7, "all_positive"),
-    std::make_tuple(6, "with_zeros"),   std::make_tuple(100, "random_large"),    std::make_tuple(0, "zeros"),
-    std::make_tuple(1, "all_positive"), std::make_tuple(2, "alternating")};
+const std::array<TestType, 16> kTestParam = {
+    std::make_tuple(10, "alternating"),   std::make_tuple(100, "alternating"),  std::make_tuple(1000, "alternating"),
+    std::make_tuple(10, "all_positive"),  std::make_tuple(100, "all_positive"), std::make_tuple(10, "all_negative"),
+    std::make_tuple(100, "all_negative"), std::make_tuple(50, "random"),        std::make_tuple(500, "random"),
+    std::make_tuple(10, "zeros"),         std::make_tuple(1, "all_positive"),   std::make_tuple(0, "zeros"),
+    std::make_tuple(1, "zeros"),          std::make_tuple(2, "alternating"),    std::make_tuple(3, "all_positive"),
+    std::make_tuple(4, "alternating")};
 
 const auto kTestTasksList = std::tuple_cat(ppc::util::AddFuncTask<IlinAAlternationsSignsOfValVecMPI, InType>(
                                                kTestParam, PPC_SETTINGS_ilin_a_alternations_signs_of_val_vec),

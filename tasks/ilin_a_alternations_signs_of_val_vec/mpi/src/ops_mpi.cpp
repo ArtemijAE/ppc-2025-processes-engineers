@@ -69,6 +69,12 @@ BoundaryInfo IlinAAlternationsSignsOfValVecMPI::GatherEdgeValues(const std::vect
 
 int IlinAAlternationsSignsOfValVecMPI::CountEdgeAlternations(const BoundaryInfo &edges, const int total_processes) {
   int count = 0;
+
+  // Всегда вызывается, даже для одного процесса
+  if (total_processes <= 1) {
+    return count;
+  }
+
   for (int process_index = 0; process_index < total_processes - 1; ++process_index) {
     const size_t right_index = static_cast<size_t>(total_processes) + static_cast<size_t>(process_index);
     const size_t left_index = static_cast<size_t>(process_index) + 1;
@@ -104,18 +110,25 @@ void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &g
     std::vector<int> offsets(world_size);
     CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
 
+    // Root процесс копирует данные напрямую
     if (counts[kRootRank] > 0 && !global_data.empty()) {
       const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
       const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
       std::copy(start_iterator, end_iterator, local_data.begin());
     }
 
-    for (int process_index = 1; process_index < world_size; ++process_index) {
+    // Отправляем данные другим процессам (кроме root)
+    for (int process_index = 0; process_index < world_size; ++process_index) {
+      if (process_index == kRootRank) {
+        continue;  // Пропускаем root
+      }
+
       const int send_size = counts[process_index];
       if (send_size > 0 && !global_data.empty()) {
         const int *send_data = global_data.data() + offsets[process_index];
         MPI_Send(send_data, send_size, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
       } else if (send_size == 0) {
+        // Отправляем пустое сообщение для процессов без данных
         MPI_Send(nullptr, 0, MPI_INT, process_index, kMpiTag, MPI_COMM_WORLD);
       }
     }
@@ -164,7 +177,6 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
   DistributeData(input_data, local_data, world_rank, world_size);
 
   const int local_changes = CountLocalSignChanges(local_data);
-
   const BoundaryInfo edges = GatherEdgeValues(local_data);
 
   int total_changes = 0;
