@@ -30,7 +30,7 @@ class IlinAAlternationsSignsOfValVecMPI : public BaseTask {
   static void CalculateDistribution(int data_size, int world_size, std::vector<int> &counts, std::vector<int> &offsets);
   static void DistributeData(const std::vector<int> &global_data, std::vector<int> &local_data, int world_rank,
                              int world_size);
-  bool HandleShortArray(int world_rank, int data_size);  // Убрал static!
+  bool HandleShortArray(int world_rank, int data_size);
 };
 
 }  // namespace ilin_a_alternations_signs_of_val_vec
