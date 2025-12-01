@@ -29,8 +29,10 @@ class IlinAAlternationsSignsOfValVecMPI : public BaseTask {
   static int CountEdgeAlternations(const BoundaryInfo &edges, int total_processes);
   static void CalculateDistribution(int data_size, int world_size, std::vector<int> &counts, std::vector<int> &offsets);
   static void DistributeData(const std::vector<int> &global_data, std::vector<int> &local_data, int world_rank,
-                             int world_size);
-  bool HandleShortArray(int world_rank, int data_size);
+                             int world_size, const std::vector<int> &counts, const std::vector<int> &offsets);
+  static void SendDataFromRoot(const std::vector<int> &global_data, int world_size, const std::vector<int> &counts,
+                               const std::vector<int> &offsets, std::vector<int> &local_data);
+  static void ReceiveDataOnNonRoot(std::vector<int> &local_data);
 };
 
 }  // namespace ilin_a_alternations_signs_of_val_vec
