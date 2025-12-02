@@ -100,44 +100,35 @@ void IlinAAlternationsSignsOfValVecMPI::CalculateDistribution(const int data_siz
   }
 }
 
-void IlinAAlternationsSignsOfValVecMPI::SendDataFromRoot(const std::vector<int> &global_data, int world_size,
-                                                         const std::vector<int> &counts,
-                                                         const std::vector<int> &offsets,
-                                                         std::vector<int> &local_data) {
-  if (counts[kRootRank] > 0) {
-    const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
-    const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
-    std::copy(start_iterator, end_iterator, local_data.begin());
-  }
-
-  for (int process_index = 0; process_index < world_size; ++process_index) {
-    if (process_index == kRootRank) {
-      continue;
-    }
-
-    const int send_size = counts[process_index];
-    if (send_size > 0) {
-      const int *send_data = global_data.data() + offsets[process_index];
-      MPI_Send(send_data, send_size, MPI_INT, process_index, 0, MPI_COMM_WORLD);
-    }
-  }
-}
-
-void IlinAAlternationsSignsOfValVecMPI::ReceiveDataOnNonRoot(std::vector<int> &local_data) {
-  if (!local_data.empty()) {
-    MPI_Recv(local_data.data(), static_cast<int>(local_data.size()), MPI_INT, kRootRank, 0, MPI_COMM_WORLD,
-             MPI_STATUS_IGNORE);
-  }
-}
-
 void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &global_data,
                                                        std::vector<int> &local_data, const int world_rank,
-                                                       const int world_size, const std::vector<int> &counts,
-                                                       const std::vector<int> &offsets) {
+                                                       const int world_size) {
   if (world_rank == kRootRank) {
-    SendDataFromRoot(global_data, world_size, counts, offsets, local_data);
+    std::vector<int> counts(world_size);
+    std::vector<int> offsets(world_size);
+    CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
+
+    if (counts[kRootRank] > 0 && !global_data.empty()) {
+      const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
+      const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
+      std::copy(start_iterator, end_iterator, local_data.begin());
+    }
+    for (int process_index = 0; process_index < world_size; ++process_index) {
+      if (process_index == kRootRank) {
+        continue;
+      }
+
+      const int send_size = counts[process_index];
+      if (send_size > 0 && !global_data.empty()) {
+        const int *send_data = global_data.data() + offsets[process_index];
+        MPI_Send(send_data, send_size, MPI_INT, process_index, 0, MPI_COMM_WORLD);
+      }
+    }
   } else {
-    ReceiveDataOnNonRoot(local_data);
+    if (!local_data.empty()) {
+      MPI_Recv(local_data.data(), static_cast<int>(local_data.size()), MPI_INT, kRootRank, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+    }
   }
 }
 
@@ -149,36 +140,27 @@ bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
 
   const std::vector<int> &input_data = GetInput();
   int data_size = static_cast<int>(input_data.size());
-
   MPI_Bcast(&data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
-
   if (data_size < kMinDataSize) {
     if (world_rank == kRootRank) {
       GetOutput() = 0;
     }
     return true;
   }
-
   std::vector<int> counts(world_size);
   std::vector<int> offsets(world_size);
-
   if (world_rank == kRootRank) {
     CalculateDistribution(data_size, world_size, counts, offsets);
   }
-
   MPI_Bcast(counts.data(), world_size, MPI_INT, kRootRank, MPI_COMM_WORLD);
   MPI_Bcast(offsets.data(), world_size, MPI_INT, kRootRank, MPI_COMM_WORLD);
-
   const int local_size = counts[world_rank];
   std::vector<int> local_data(static_cast<size_t>(local_size));
-  DistributeData(input_data, local_data, world_rank, world_size, counts, offsets);
-
+  DistributeData(input_data, local_data, world_rank, world_size);
   const int local_changes = CountLocalSignChanges(local_data);
   BoundaryInfo edges = GatherEdgeValues(local_data);
-
   int total_changes = 0;
   MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, kRootRank, MPI_COMM_WORLD);
-
   if (world_rank == kRootRank) {
     total_changes += CountEdgeAlternations(edges, world_size);
     GetOutput() = total_changes;
