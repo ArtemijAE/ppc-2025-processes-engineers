@@ -108,18 +108,19 @@ void IlinAAlternationsSignsOfValVecMPI::DistributeData(const std::vector<int> &g
     std::vector<int> offsets(world_size);
     CalculateDistribution(static_cast<int>(global_data.size()), world_size, counts, offsets);
 
-    if (counts[kRootRank] > 0 && !global_data.empty()) {
+    if (counts[kRootRank] > 0) {
       const auto start_iterator = global_data.begin() + static_cast<ptrdiff_t>(offsets[kRootRank]);
       const auto end_iterator = start_iterator + static_cast<ptrdiff_t>(counts[kRootRank]);
       std::copy(start_iterator, end_iterator, local_data.begin());
     }
+
     for (int process_index = 0; process_index < world_size; ++process_index) {
       if (process_index == kRootRank) {
         continue;
       }
 
       const int send_size = counts[process_index];
-      if (send_size > 0 && !global_data.empty()) {
+      if (send_size > 0) {
         const int *send_data = global_data.data() + offsets[process_index];
         MPI_Send(send_data, send_size, MPI_INT, process_index, 0, MPI_COMM_WORLD);
       }
