@@ -23,7 +23,7 @@
 
 ## 3. Описание базового алгоритма
 
-``` cpp
+```cpp
 int alternation_count = 0;
 for (size_t i = 0; i < vec.size() - 1; ++i) {
     if ((vec[i] < 0 && vec[i + 1] >= 0) || 
@@ -58,119 +58,114 @@ for (size_t i = 0; i < vec.size() - 1; ++i) {
 
 **Распределение размера вектора**
 ```cpp
-MPI_Bcast(&global_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+MPI_Bcast(&data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
 ```
 Все процессы должны знать общий размер вектора для вычисления размеров своих блоков.
 
 **Распределение данных**
+В реализации используется схема с ручным распределением данных:
 ```cpp
-MPI_Scatterv(global_size > 0 ? const_cast<int*>(global_vec.data()) : nullptr,
-             counts.data(), displs.data(), MPI_INT,
-             local_vec.data(), static_cast<int>(local_vec.size()), MPI_INT,
-             0, MPI_COMM_WORLD);
+void DistributeData(const std::vector<int> &global_data,
+                   std::vector<int> &local_data, const int world_rank,
+                   const int world_size) {
+  if (world_rank == kRootRank) {
+    for (int process_index = 0; process_index < world_size; ++process_index) {
+      if (process_index == kRootRank) continue;
+      MPI_Send(send_data, send_size, MPI_INT, process_index, 0, MPI_COMM_WORLD);
+    }
+  } else {
+    MPI_Recv(local_data.data(), local_data.size(), MPI_INT, kRootRank, 0, 
+             MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+}
 ```
-Процесс 0 распределяет части вектора между всеми процессами. Массивы `counts` и `displs` определяют размер и смещение для каждого процесса.
 
 **Локальный подсчет чередований**
 ```cpp
-int local_alternations = 0;
-for (size_t i = 0; i < local_vec.size() - 1; ++i) {
-    if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || 
-        (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
-        local_alternations++;
+int CountLocalSignChanges(const std::vector<int> &segment) {
+  int count = 0;
+  for (size_t index = 0; index < segment.size() - 1; ++index) {
+    const bool is_negative_current = segment[index] < 0;
+    const bool is_negative_next = segment[index + 1] < 0;
+    if (is_negative_current != is_negative_next) {
+      ++count;
     }
+  }
+  return count;
 }
 ```
 Каждый процесс независимо подсчитывает чередования в своем блоке.
 
 **Сбор граничных элементов**
 ```cpp
-int left_boundary = local_vec.empty() ? 0 : local_vec.front();
-int right_boundary = local_vec.empty() ? 0 : local_vec.back();
-
-std::vector<int> boundaries(2 * world_size);
-MPI_Gather(&left_boundary, 1, MPI_INT, boundaries.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-MPI_Gather(&right_boundary, 1, MPI_INT, boundaries.data() + world_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+BoundaryInfo GatherEdgeValues(const std::vector<int> &segment) {
+  const int left_val = segment.empty() ? 0 : segment.front();
+  const int right_val = segment.empty() ? 0 : segment.back();
+  MPI_Gather(&left_val, 1, MPI_INT, info.all_edges.data(), 1, MPI_INT, 
+             kRootRank, MPI_COMM_WORLD);
+  MPI_Gather(&right_val, 1, MPI_INT, 
+             info.all_edges.data() + total_processes, 1, MPI_INT,
+             kRootRank, MPI_COMM_WORLD);
+  return info;
+}
 ```
-Процессы передают первый и последний элемент своего блока процессу 0 для проверки чередований на границах.
 
 **Суммирование результатов**
 ```cpp
-int total_alternations = 0;
-MPI_Reduce(&local_alternations, &total_alternations, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, kRootRank, 
+           MPI_COMM_WORLD);
 ```
 Локальные подсчеты суммируются на процессе 0.
 
 **Добавление граничных чередований**
 ```cpp
-if (world_rank == 0) {
-    for (int i = 0; i < world_size - 1; ++i) {
-        int right_of_i = boundaries[world_size + i];
-        int left_of_next = boundaries[i + 1];
-        if ((right_of_i < 0 && left_of_next >= 0) || 
-            (right_of_i >= 0 && left_of_next < 0)) {
-            total_alternations++;
-        }
+int CountEdgeAlternations(const BoundaryInfo &edges, const int total_processes) {
+  int count = 0;
+  for (int process_index = 0; process_index < total_processes - 1; ++process_index) {
+    const int right_edge = edges.all_edges[total_processes + process_index];
+    const int left_edge = edges.all_edges[process_index + 1];
+    const bool is_negative_right = right_edge < 0;
+    const bool is_negative_left = left_edge < 0;
+    if (is_negative_right != is_negative_left) {
+      ++count;
     }
-    GetOutput() = total_alternations;
+  }
+  return count;
 }
 ```
-Процесс 0 проверяет чередования между соседними блоками и добавляет их к общему результату.
 
-**Синхронизация**
-```cpp
-MPI_Barrier(MPI_COMM_WORLD);
-```
-Все процессы синхронизируются перед завершением.
-
-**Полный код параллельного алгоритма:**
+**Полный код параллельного алгоритма (RunImpl):**
 ```cpp
 bool IlinAAlternationsSignsOfValVecMPI::RunImpl() {
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    const std::vector<int>& global_vec = GetInput();
-    int global_size = static_cast<int>(global_vec.size());
-    MPI_Bcast(&global_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    int local_size = global_size / world_size;
-    int remainder = global_size % world_size;
-    std::vector<int> local_vec(local_size + (world_rank < remainder ? 1 : 0));
-    std::vector<int> counts(world_size), displs(world_size);
-    if (world_rank == 0) {
-        for (int i = 0; i < world_size; ++i) {
-            counts[i] = local_size + (i < remainder ? 1 : 0);
-            displs[i] = (i == 0) ? 0 : displs[i - 1] + counts[i - 1];
-        }
-    }
-    MPI_Scatterv(global_vec.data(), counts.data(), displs.data(), MPI_INT,
-                 local_vec.data(), local_vec.size(), MPI_INT, 0, MPI_COMM_WORLD);
-    int local_alternations = 0;
-    for (size_t i = 0; i < local_vec.size() - 1; ++i) {
-        if ((local_vec[i] < 0 && local_vec[i + 1] >= 0) || 
-            (local_vec[i] >= 0 && local_vec[i + 1] < 0)) {
-            local_alternations++;
-        }
-    }
-    int left = local_vec.empty() ? 0 : local_vec.front();
-    int right = local_vec.empty() ? 0 : local_vec.back();
-    std::vector<int> boundaries(2 * world_size);
-    MPI_Gather(&left, 1, MPI_INT, boundaries.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Gather(&right, 1, MPI_INT, boundaries.data() + world_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    int total = 0;
-    MPI_Reduce(&local_alternations, &total, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-    if (world_rank == 0) {
-        for (int i = 0; i < world_size - 1; ++i) {
-            int right_of_i = boundaries[world_size + i];
-            int left_of_next = boundaries[i + 1];
-            if ((right_of_i < 0 && left_of_next >= 0) || 
-                (right_of_i >= 0 && left_of_next < 0)) {
-                total++;
-            }
-        }
-        GetOutput() = total;
-    }
-    MPI_Barrier(MPI_COMM_WORLD);
+  int world_rank = 0, world_size = 0;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  const std::vector<int> &input_data = GetInput();
+  int data_size = static_cast<int>(input_data.size());
+  MPI_Bcast(&data_size, 1, MPI_INT, kRootRank, MPI_COMM_WORLD);
+  if (data_size < kMinDataSize) {
+    if (world_rank == kRootRank) GetOutput() = 0;
     return true;
+  }
+  std::vector<int> counts(world_size), offsets(world_size);
+  if (world_rank == kRootRank) {
+    CalculateDistribution(data_size, world_size, counts, offsets);
+  }
+  MPI_Bcast(counts.data(), world_size, MPI_INT, kRootRank, MPI_COMM_WORLD);
+  MPI_Bcast(offsets.data(), world_size, MPI_INT, kRootRank, MPI_COMM_WORLD);
+  const int local_size = counts[world_rank];
+  std::vector<int> local_data(static_cast<size_t>(local_size));
+  DistributeData(input_data, local_data, world_rank, world_size);
+  const int local_changes = CountLocalSignChanges(local_data);
+  BoundaryInfo edges = GatherEdgeValues(local_data);
+  int total_changes = 0;
+  MPI_Reduce(&local_changes, &total_changes, 1, MPI_INT, MPI_SUM, kRootRank, 
+             MPI_COMM_WORLD);
+  if (world_rank == kRootRank) {
+    total_changes += CountEdgeAlternations(edges, world_size);
+    GetOutput() = total_changes;
+  }
+  return true;
 }
 ```
 
@@ -215,21 +210,20 @@ namespace ilin_a_alternations_signs_of_val_vec {
 ```
 
 **Последовательная реализация (seq/)**
-
 **ops_seq.hpp** - объявление класса:
 ```cpp
 class IlinAAlternationsSignsOfValVecSEQ : public BaseTask {
-public:
-    static constexpr ppc::task::TypeOfTask GetStaticTypeOfTask() {
-        return ppc::task::TypeOfTask::kSEQ;
-    }
-    explicit IlinAAlternationsSignsOfValVecSEQ(const InType &in);
+ public:
+  static constexpr ppc::task::TypeOfTask GetStaticTypeOfTask() {
+    return ppc::task::TypeOfTask::kSEQ;
+  }
+  explicit IlinAAlternationsSignsOfValVecSEQ(const InType &in);
 
-private:
-    bool ValidationImpl() override;
-    bool PreProcessingImpl() override;
-    bool RunImpl() override;
-    bool PostProcessingImpl() override;
+ private:
+  bool ValidationImpl() override;
+  bool PreProcessingImpl() override;
+  bool RunImpl() override;
+  bool PostProcessingImpl() override;
 };
 ```
 
@@ -273,42 +267,46 @@ bool IlinAAlternationsSignsOfValVecSEQ::RunImpl() {
 
 **MPI реализация (mpi/)**
 
-**ops_mpi.hpp** - объявление класса:
+**ops_mpi.hpp** - объявление класса со вспомогательными методами:
 ```cpp
 class IlinAAlternationsSignsOfValVecMPI : public BaseTask {
-public:
-    static constexpr ppc::task::TypeOfTask GetStaticTypeOfTask() {
-        return ppc::task::TypeOfTask::kMPI;
-    }
-    explicit IlinAAlternationsSignsOfValVecMPI(const InType &in);
+ public:
+  static constexpr ppc::task::TypeOfTask GetStaticTypeOfTask() {
+    return ppc::task::TypeOfTask::kMPI;
+  }
+  explicit IlinAAlternationsSignsOfValVecMPI(const InType &in);
 
-private:
-    bool ValidationImpl() override;
-    bool PreProcessingImpl() override;
-    bool RunImpl() override;
-    bool PostProcessingImpl() override;
+ private:
+  bool ValidationImpl() override;
+  bool PreProcessingImpl() override;
+  bool RunImpl() override;
+  bool PostProcessingImpl() override;
+
+  static int CountLocalSignChanges(const std::vector<int> &segment);
+  static BoundaryInfo GatherEdgeValues(const std::vector<int> &segment);
+  static int CountEdgeAlternations(const BoundaryInfo &edges, int total_processes);
+  static void CalculateDistribution(int data_size, int world_size, 
+                                   std::vector<int> &counts, std::vector<int> &offsets);
+  static void DistributeData(const std::vector<int> &global_data, 
+                            std::vector<int> &local_data, int world_rank,
+                            int world_size);
 };
 ```
 
 **ops_mpi.cpp** - содержит полную реализацию параллельного алгоритма, описанного в разделе 4.
 
 **Функциональные тесты (tests/functional/main.cpp)**
-
-Генерация тестовых данных различных типов:
+Генерация тестовых данных различных типов (16 тестовых случаев):
 ```cpp
-const std::array<TestType, 12> kTestParam = {
-    std::make_tuple(10, "alternating"),    
-    std::make_tuple(100, "alternating"),
-    std::make_tuple(1000, "alternating"),
-    std::make_tuple(10, "all_positive"),   
-    std::make_tuple(100, "all_positive"),
-    std::make_tuple(10, "all_negative"),  
-    std::make_tuple(100, "all_negative"),
-    std::make_tuple(50, "random"),         
-    std::make_tuple(500, "random"),
-    std::make_tuple(10, "zeros"),         
-    std::make_tuple(1, "all_positive"),    
-    std::make_tuple(0, "all_positive")   
+const std::array<TestType, 16> kTestParam = {
+    std::make_tuple(10, "alternating"),   std::make_tuple(100, "alternating"),
+    std::make_tuple(1000, "alternating"), std::make_tuple(10, "all_positive"),
+    std::make_tuple(100, "all_positive"), std::make_tuple(10, "all_negative"),
+    std::make_tuple(100, "all_negative"), std::make_tuple(50, "random"),
+    std::make_tuple(500, "random"),       std::make_tuple(10, "zeros"),
+    std::make_tuple(1, "all_positive"),   std::make_tuple(0, "zeros"),
+    std::make_tuple(1, "zeros"),          std::make_tuple(2, "alternating"),
+    std::make_tuple(3, "all_positive"),   std::make_tuple(4, "alternating")
 };
 ```
 
@@ -317,20 +315,19 @@ const std::array<TestType, 12> kTestParam = {
 Генерация большого вектора для тестирования производительности:
 ```cpp
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
-    const int kVectorSize_ = 15000000;  
-    InType input_data_{};
-    void SetUp() override {
-        input_data_.clear();
-        input_data_.reserve(kVectorSize_);
-        for (int i = 0; i < kVectorSize_; ++i) {
-            input_data_.push_back((i * 17) % 201 - 100);
-        }
+  const int kVectorSize_ = 15000000;
+  InType input_data_;
+  void SetUp() override {
+    input_data_.clear();
+    input_data_.reserve(kVectorSize_);
+    for (int i = 0; i < kVectorSize_; ++i) {
+      input_data_.push_back(((i * 17) % 201) - 100);
     }
+  }
 };
 ```
 
 ## 6. Результаты экспериментов
-
 **Окружение:**
 - Процессор: 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz, 2419 МГц, ядер: 4, логических процессоров: 8
 - Архитектура: AMD64
@@ -339,7 +336,7 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
 - Операционная система: Windows 10 (базовая) / Ubuntu 24.04.3 LTS (сборочная)
 - Подсистема: WSL2 (Windows Subsystem for Linux)
 
-**Инструменты**:
+**Инструменты:**
 - Компилятор: GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04)
 - MPI реализация: Open MPI 4.1.6
 - Тип сборки: Release 
@@ -347,65 +344,73 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
 **Переменные окружения:**
 ```
 PPC_NUM_THREADS=1
-PPC_NUM_PROC=2,4,8
+PPC_NUM_PROC=2,4,6,8
 ```
 
 **Тестовые данные:**
-- Размер вектора: 15,000,000 элементов
+- Размер вектора: 15,000,000 элементов.
+- Для получения значимых результатов каждый тест выполнялся несколько раз, для конечного подсчета использовались средние значения за 4 запуска.
 
 ## 7. Результаты и обсуждение
 
 ### 7.1 Корректность
-Корректность проверена через 12 функциональных тестов:
+Корректность проверена через 16 функциональных тестов:
 - Чередующиеся знаки
 - Все положительные/отрицательные элементы
 - Случайные значения
 - Нулевые элементы
-- Граничные случаи (пустой вектор, 1 элемент)
+- Граничные случаи (пустой вектор, 1 элемент, 2 элемента)
 
 Все функциональные тесты пройдены для обеих реализаций.
 
 ### 7.2 Производительность
 
 **Методика измерений:**
-- Используются значения `task_run` из вывода тестов (основной алгоритм)
+- Используются значения `task_run` из вывода тестов (время выполнения основного алгоритма)
 - Время измеряется в секундах
+- Для каждого количества процессов выполнено 4 запуска, взяты средние значения
+- SEQ время взято среднее за 4 запуска
 
 **Результаты для вектора 15,000,000 элементов:**
-
 | Технология | Кол-во процессов | Время, сек | Ускорение | Эффективность |
 |------------|------------------|------------|-----------|---------------|
-| SEQ        | 1                | 0.03931    | 1.00      | N/A           |
-| MPI        | 2                | 0.02834    | 1.39      | 69.5%         |
-| MPI        | 4                | 0.02350    | 1.67      | 41.8%         |
-| MPI        | 8                | 0.02109    | 1.86      | 23.3%         |
+| SEQ        | 1                | 0.02618840 | 1.00      | N/A           |
+| MPI        | 2                | 0.02238310 | 1.17      | 58.5%         |
+| MPI        | 4                | 0.01819460 | 1.44      | 36.0%         |
+| MPI        | 6                | 0.01685246 | 1.55      | 25.8%         |
+| MPI        | 8                | 0.01987937 | 1.32      | 16.5%         |
 
-**Расчеты:**
-- SEQ: 0.03931 сек
-- MPI 2: 0.02834 сек  Speedup = 0.03931/0.02834 = 1.39
-- MPI 4: 0.02350 сек  Speedup = 0.03931/0.02350 = 1.67  
-- MPI 8: 0.02109 сек  Speedup = 0.03931/0.02109 = 1.86
+**Расчеты ускорения:**
+- SEQ : 0.02618840 сек
+- MPI 2 процесса: Speedup = 0.02618840 / 0.02238310 = 1.17
+- MPI 4 процесса: Speedup = 0.02618840 / 0.01819460 = 1.44  
+- MPI 6 процессов: Speedup = 0.02618840 / 0.01685246 = 1.55
+- MPI 8 процессов: Speedup = 0.02618840 / 0.01987937 = 1.32
 
-**Эффективность:**
-- MPI 2: (1.39 / 2) * 100% = 69.5%
-- MPI 4: (1.67 / 4) * 100% = 41.8%
-- MPI 8: (1.86 / 8) * 100% = 23.3%
+**Расчет эффективности:**
+- MPI 2 процесса: (1.17 / 2) * 100% = 58.5%
+- MPI 4 процесса: (1.44 / 4) * 100% = 36.0%
+- MPI 6 процессов: (1.55 / 6) * 100% = 25.8%
+- MPI 8 процессов: (1.32 / 8) * 100% = 16.5%
 
 **Анализ результатов:**
-- На 2 процессах достигается ускорение 1.39x с высокой эффективностью 69.5%
-- На 4 процессах максимальное ускорение 1.67x при эффективности 41.8%
-- На 8 процессах ускорение 1.86x, но эффективность падает до 23.3%
-- Оптимальное количество процессов для данной задачи - 2-4
+- На 2 процессах достигается ускорение 1.17 раза с эффективностью 58.5%. Именно на двух процессах достигается баланс между полезными вычислениями и накладными расходами на коммуникацию.
+- На 4 процессах ускорение увеличивается до 1.44 раза, но эффективность уже снижается до 36.0%. С увеличением числа процессов растут коммуникационные затраты.
+- На 6 процессах наблюдается максимальное ускорение 1.55 раза, это соответствует оптимальному использованию физических ядер процессора. Эффективность составляет 25.8%.
+- На 8 процессах производительность снижается до 1.32 раза, а эффективность - до 16.5%. Скорее всего возникает конкуренция за вычислительные ресурсы и увеличиваются накладные расходы на синхронизацию, из-за чего показатели метрик снижаются.
 
-**Вывод:** Алгоритм демонстрирует эффективное распараллеливание на 2-4 процессах, однако дальнейшее увеличение числа процессов не приводит к значительному улучшению производительности. Связано это с преобладанием коммуникационных затрат над вычислительной нагрузкой при большом количестве процессов. Для вектора из 15 миллионов элементов максимальное ускорение в 1.86 раза достигается на 8 процессах, но с низкой эффективностью (23.3%), а на 2 процессах наблюдается наиболее сбалансированное соотношение ускорения (1.39x) и эффективности (69.5%).
+- Ускорение растет до 6 процессов, достигая максимума в 1.55 раза
+- На 8 процессах наблюдается ухудшение производительности
+- Эффективность монотонно снижается с увеличением числа процессов
+
+**Вывод:** Алгоритм демонстрирует положительное ускорение на всех конфигурациях, достигая максимума 1.55 раза на 6 процессах, но эффективность использования вычислительных ресурсов снижается с ростом числа процессов, так как наша задача характеризуется низкой вычислительной сложностью и значительными коммуникационными затратами. Оптимальной конфигурацией для данной задачи является использование 4-6 процессов MPI.
 
 ## 8. Заключение
 
-Успешно реализованы последовательный и параллельный алгоритмы подсчета чередований знаков и проведено сравнение оных, что подтвердило практическую ценность MPI для задач анализа данных. Эффективность распараллеливания доказана экспериментально: на 4 процессах достигается ускорение 1.67x по сравнению с последовательной версией, что демонстрирует преимущества параллельных вычислений для обработки больших объемов данных, а оптимальная конфигурация для данной задачи составляет 2-4 процесса MPI.
+Успешно реализованы последовательный и параллельный алгоритмы подсчета чередований знаков и было проведено сравнение оных, что подтвердило практическую ценность MPI для задач анализа данных. Эффективность распараллеливания доказана экспериментально: на 6 процессах достигается ускорение 1.55 раза по сравнению с последовательной версией, что демонстрирует преимущества параллельных вычислений для обработки больших объемов данных, а оптимальная конфигурация для данной задачи составляет 4-6 процесса MPI.
 Значимость работы заключается в демонстрации того, что даже для простых алгоритмов анализа данных правильно организованное распараллеливание позволяет сократить время вычислений, что особенно важно при обработке огромных пластов информации в реальных задачах статистики, математики и других областях научных исследований.
 
 ## 9. Список литературы
-
 1. Chandra R. Parallel programming in OpenMP. – Morgan kaufmann, 2001.
 2. R. L. Graham, G. M. Shipman, B. W. Barrett, R. H. Castain, G. Bosilca and A. Lumsdaine, "Open MPI: A High-Performance, Heterogeneous MPI," 2006 IEEE International Conference on Cluster Computing, Barcelona, Spain, 2006, pp. 1-9, doi: 10.1109/CLUSTR.2006.311904.
 3. В.П. Гергель. Учебный курс "Введение в методы параллельного программирования". Раздел "Параллельное программирование с использованием OpenMP" // URL: http://www.hpcc.unn.ru/multicore/materials/tb/mc_ppr04.pdf, 2007.
