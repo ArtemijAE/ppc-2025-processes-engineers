@@ -39,10 +39,6 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       CreateRandomData(vector_size);
     } else if (type == "zeros") {
       CreateZerosData(vector_size);
-    } else if (type == "mixed") {
-      CreateMixedData(vector_size);
-    } else if (type == "empty_segments_test") {
-      CreateEmptySegmentsTestData(vector_size);
     }
   }
 
