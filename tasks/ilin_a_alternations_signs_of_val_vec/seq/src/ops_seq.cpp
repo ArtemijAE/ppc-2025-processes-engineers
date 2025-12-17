@@ -34,7 +34,6 @@ bool IlinAAlternationsSignsOfValVecSEQ::RunImpl() {
       alternation_count++;
     }
   }
-
   GetOutput() = alternation_count;
   return true;
 }
