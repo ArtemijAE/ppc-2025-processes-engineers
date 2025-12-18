@@ -1,6 +1,9 @@
 #pragma once
 
+#include <vector>
+
 #include "ilin_a_gaussian_method_horizontal_band_scheme/common/include/common.hpp"
+#include "task/include/task.hpp"
 
 namespace ilin_a_gaussian_method_horizontal_band_scheme {
 

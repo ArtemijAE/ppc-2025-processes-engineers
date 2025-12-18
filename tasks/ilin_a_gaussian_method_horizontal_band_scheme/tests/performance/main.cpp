@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <random>
 #include <vector>
 
@@ -35,16 +36,14 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
     int band_width = std::max(1, size / 100);
-    if (band_width > size) {
-      band_width = size;
-    }
+    band_width = std::min(band_width, size);
 
-    std::vector<double> matrix(size * band_width, 0.0);
-    std::vector<double> vector(size, 0.0);
-    std::vector<double> expected_solution(size);
+    std::vector<double> matrix(static_cast<size_t>(size) * band_width, 0.0);
+    std::vector<double> vector(static_cast<size_t>(size), 0.0);
+    std::vector<double> expected_solution(static_cast<size_t>(size));
 
     for (int i = 0; i < size; ++i) {
-      expected_solution[i] = static_cast<double>(i + 1);
+      expected_solution[static_cast<size_t>(i)] = static_cast<double>(i + 1);
     }
 
     for (int i = 0; i < size; ++i) {
@@ -53,24 +52,26 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
         if (i - offset >= 0) {
           double val = dist(gen) * 0.1;
           int band_idx = band_width - 1 - offset;
-          matrix[i * band_width + band_idx] = val;
+          matrix[static_cast<size_t>(i) * band_width + band_idx] = val;
           diag_sum += std::fabs(val);
         }
       }
       int diag_band_idx = band_width - 1;
-      matrix[i * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
+      matrix[static_cast<size_t>(i) * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
     }
     for (int i = 0; i < size; ++i) {
-      double sum = matrix[i * band_width + (band_width - 1)] * expected_solution[i];
+      double sum =
+          matrix[static_cast<size_t>(i) * band_width + (band_width - 1)] * expected_solution[static_cast<size_t>(i)];
 
       for (int offset = 1; offset < std::min(band_width, 10); ++offset) {
         if (i - offset >= 0) {
           int band_idx = band_width - 1 - offset;
-          sum += matrix[i * band_width + band_idx] * expected_solution[i - offset];
+          sum += matrix[static_cast<size_t>(i) * band_width + band_idx] *
+                 expected_solution[static_cast<size_t>(i - offset)];
         }
       }
 
-      vector[i] = sum;
+      vector[static_cast<size_t>(i)] = sum;
     }
 
     input_data_.clear();

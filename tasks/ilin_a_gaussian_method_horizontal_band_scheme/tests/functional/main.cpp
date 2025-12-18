@@ -1,12 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <numeric>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -63,16 +61,14 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
     int band_width = std::max(1, size / 4);
-    if (band_width > size) {
-      band_width = size;
-    }
+    band_width = std::min(band_width, size);
 
-    std::vector<double> matrix(size * band_width, 0.0);
-    std::vector<double> vector(size, 0.0);
-    expected_solution_.resize(size);
+    std::vector<double> matrix(static_cast<size_t>(size) * band_width, 0.0);
+    std::vector<double> vector(static_cast<size_t>(size), 0.0);
+    expected_solution_.resize(static_cast<size_t>(size));
 
     for (int i = 0; i < size; ++i) {
-      expected_solution_[i] = static_cast<double>(i + 1);
+      expected_solution_[static_cast<size_t>(i)] = static_cast<double>(i + 1);
     }
 
     for (int i = 0; i < size; ++i) {
@@ -87,14 +83,14 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
           int band_idx = (i - j + band_width - 1);
           if (band_idx >= 0 && band_idx < band_width) {
             double val = dist(gen) * 0.1;
-            matrix[i * band_width + band_idx] = val;
+            matrix[static_cast<size_t>(i) * band_width + band_idx] = val;
             diag_sum += std::fabs(val);
           }
         }
       }
 
       int diag_band_idx = band_width - 1;
-      matrix[i * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
+      matrix[static_cast<size_t>(i) * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
     }
 
     for (int i = 0; i < size; ++i) {
@@ -103,11 +99,11 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
         if (j <= i) {
           int band_idx = (i - j + band_width - 1);
           if (band_idx >= 0 && band_idx < band_width) {
-            sum += matrix[i * band_width + band_idx] * expected_solution_[j];
+            sum += matrix[static_cast<size_t>(i) * band_width + band_idx] * expected_solution_[static_cast<size_t>(j)];
           }
         }
       }
-      vector[i] = sum;
+      vector[static_cast<size_t>(i)] = sum;
     }
 
     test_input_.clear();

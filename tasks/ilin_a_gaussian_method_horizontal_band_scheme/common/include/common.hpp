@@ -16,8 +16,8 @@ using BaseTask = ppc::task::Task<InType, OutType>;
 struct MatrixData {
   std::vector<double> matrix;
   std::vector<double> vector;
-  int size;
-  int band_width;
+  int size = 0;
+  int band_width = 0;
 };
 
 }  // namespace ilin_a_gaussian_method_horizontal_band_scheme
