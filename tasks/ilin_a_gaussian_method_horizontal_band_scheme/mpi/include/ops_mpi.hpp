@@ -21,23 +21,17 @@ class IlinAGaussianMethodMPI : public BaseTask {
   MatrixData data_;
   std::vector<double> solution_;
 
-  bool ReadInputData(const std::vector<double> &input);
-  void GaussianEliminationMPI();
-  void BackSubstitutionMPI();
-
-  void DistributeData();
-  void GatherResults();
-
   int rank_;
   int size_;
-  int proc_count_;
-
-  std::vector<double> local_matrix_;
-  std::vector<double> local_vector_;
-  std::vector<double> local_solution_;
+  int n_;
+  int band_;
   int local_rows_;
   int row_start_;
   int row_end_;
+  int rows_per_proc_;
+  int remainder_;
+  std::vector<double> local_matrix_;
+  std::vector<double> local_vector_;
 };
 
 }  // namespace ilin_a_gaussian_method_horizontal_band_scheme

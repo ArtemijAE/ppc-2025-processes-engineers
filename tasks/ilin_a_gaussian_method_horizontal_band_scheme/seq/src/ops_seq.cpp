@@ -58,33 +58,34 @@ bool IlinAGaussianMethodSEQ::RunImpl() {
   std::vector<double> matrix = data_.matrix;
 
   for (int k = 0; k < n; ++k) {
-    int pivot_row = k;
+    int max_row = k;
     double max_val = 0.0;
 
-    int end_search = std::min(n, k + m);
-    for (int i = k; i < end_search; ++i) {
-      int diag_idx = m - 1;
-      double val = std::fabs(matrix[i * m + diag_idx]);
-      if (val > max_val) {
-        max_val = val;
-        pivot_row = i;
+    for (int i = k; i < std::min(n, k + m); ++i) {
+      int diag_idx = m - 1 - (i - k);
+      if (diag_idx >= 0) {
+        double val = std::fabs(matrix[i * m + diag_idx]);
+        if (val > max_val) {
+          max_val = val;
+          max_row = i;
+        }
       }
     }
 
-    if (pivot_row != k) {
+    if (max_row != k) {
       for (int j = 0; j < m; ++j) {
-        std::swap(matrix[k * m + j], matrix[pivot_row * m + j]);
+        std::swap(matrix[k * m + j], matrix[max_row * m + j]);
       }
-      std::swap(b[k], b[pivot_row]);
+      std::swap(b[k], b[max_row]);
     }
 
-    double pivot = matrix[k * m + m - 1];
+    int diag_idx = m - 1;
+    double pivot = matrix[k * m + diag_idx];
     if (std::fabs(pivot) < 1e-12) {
       continue;
     }
 
-    int end_row = std::min(n, k + m);
-    for (int i = k + 1; i < end_row; ++i) {
+    for (int i = k + 1; i < std::min(n, k + m); ++i) {
       int factor_idx = m - 1 - (i - k);
       if (factor_idx < 0) {
         continue;
@@ -106,16 +107,20 @@ bool IlinAGaussianMethodSEQ::RunImpl() {
   for (int i = n - 1; i >= 0; --i) {
     double sum = 0.0;
 
-    int end_col = std::min(n, i + m);
-    for (int j = i + 1; j < end_col; ++j) {
+    for (int j = i + 1; j < std::min(n, i + m); ++j) {
       int idx = m - 1 + (j - i);
       if (idx < m) {
         sum += matrix[i * m + idx] * solution_[j];
       }
     }
 
-    double diag = matrix[i * m + m - 1];
-    solution_[i] = (b[i] - sum) / diag;
+    int diag_idx = m - 1;
+    double diag = matrix[i * m + diag_idx];
+    if (std::fabs(diag) > 1e-12) {
+      solution_[i] = (b[i] - sum) / diag;
+    } else {
+      solution_[i] = 0.0;
+    }
   }
 
   return true;

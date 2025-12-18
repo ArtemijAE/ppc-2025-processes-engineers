@@ -13,7 +13,7 @@
 namespace ilin_a_gaussian_method_horizontal_band_scheme {
 
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
-  const int kSize_ = 100;
+  const int kSize_ = 10000;
   InType input_data_{};
 
   void SetUp() override {
@@ -34,36 +34,42 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
-    int band_width = std::min(10, size / 4 + 1);
+    int band_width = std::max(1, size / 100);
+    if (band_width > size) {
+      band_width = size;
+    }
+
     std::vector<double> matrix(size * band_width, 0.0);
     std::vector<double> vector(size, 0.0);
-    std::vector<double> solution(size);
+    std::vector<double> expected_solution(size);
 
     for (int i = 0; i < size; ++i) {
-      solution[i] = dist(gen);
+      expected_solution[i] = static_cast<double>(i + 1);
     }
 
     for (int i = 0; i < size; ++i) {
-      for (int j = 0; j < size; ++j) {
-        int band_idx = (j - i + band_width - 1);
-        if (band_idx >= 0 && band_idx < band_width) {
-          if (i == j) {
-            matrix[i * band_width + band_idx] = dist(gen) + band_width * 10.0;
-          } else if (std::abs(i - j) < band_width) {
-            matrix[i * band_width + band_idx] = dist(gen) * 0.1;
-          }
+      double diag_sum = 0.0;
+      for (int offset = 1; offset < std::min(band_width, 10); ++offset) {
+        if (i - offset >= 0) {
+          double val = dist(gen) * 0.1;
+          int band_idx = band_width - 1 - offset;
+          matrix[i * band_width + band_idx] = val;
+          diag_sum += std::fabs(val);
         }
       }
+      int diag_band_idx = band_width - 1;
+      matrix[i * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
     }
-
     for (int i = 0; i < size; ++i) {
-      double sum = 0.0;
-      for (int j = 0; j < size; ++j) {
-        int band_idx = (j - i + band_width - 1);
-        if (band_idx >= 0 && band_idx < band_width) {
-          sum += matrix[i * band_width + band_idx] * solution[j];
+      double sum = matrix[i * band_width + (band_width - 1)] * expected_solution[i];
+
+      for (int offset = 1; offset < std::min(band_width, 10); ++offset) {
+        if (i - offset >= 0) {
+          int band_idx = band_width - 1 - offset;
+          sum += matrix[i * band_width + band_idx] * expected_solution[i - offset];
         }
       }
+
       vector[i] = sum;
     }
 

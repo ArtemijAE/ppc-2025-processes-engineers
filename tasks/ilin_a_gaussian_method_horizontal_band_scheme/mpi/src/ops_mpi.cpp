@@ -4,7 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+#include <vector>
 
 namespace ilin_a_gaussian_method_horizontal_band_scheme {
 
@@ -12,28 +12,28 @@ IlinAGaussianMethodMPI::IlinAGaussianMethodMPI(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput() = std::vector<double>();
+  rank_ = 0;
+  size_ = 1;
 }
 
 bool IlinAGaussianMethodMPI::ValidationImpl() {
-  const auto &input = GetInput();
-  if (input.empty()) {
-    return false;
-  }
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
 
-  if (input.size() < 4) {
-    return false;
-  }
+  if (rank_ == 0) {
+    const auto &input = GetInput();
+    if (input.size() < 4) {
+      return false;
+    }
 
-  int size = static_cast<int>(input[0]);
-  int band_width = static_cast<int>(input[1]);
+    int size = static_cast<int>(input[0]);
+    int band_width = static_cast<int>(input[1]);
 
-  if (size <= 0 || band_width <= 0 || band_width > size) {
-    return false;
-  }
+    if (size <= 0 || band_width <= 0 || band_width > size) {
+      return false;
+    }
 
-  size_t expected_count = 2 + size * band_width + size;
-  if (input.size() != expected_count) {
-    return false;
+    size_t expected_count = 2 + size * band_width + size;
+    return input.size() == expected_count;
   }
 
   return true;
@@ -41,311 +41,337 @@ bool IlinAGaussianMethodMPI::ValidationImpl() {
 
 bool IlinAGaussianMethodMPI::PreProcessingImpl() {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
-  MPI_Comm_size(MPI_COMM_WORLD, &proc_count_);
+  MPI_Comm_size(MPI_COMM_WORLD, &size_);
 
-  if (!ReadInputData(GetInput())) {
-    return false;
+  if (rank_ == 0) {
+    const auto &input = GetInput();
+    data_.size = static_cast<int>(input[0]);
+    data_.band_width = static_cast<int>(input[1]);
   }
 
-  solution_.resize(data_.size, 0.0);
-  GetOutput() = std::vector<double>(data_.size, 0.0);
+  MPI_Bcast(&data_.size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&data_.band_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  n_ = data_.size;
+  band_ = data_.band_width;
+
+  rows_per_proc_ = n_ / size_;
+  remainder_ = n_ % size_;
+
+  if (rank_ < remainder_) {
+    local_rows_ = rows_per_proc_ + 1;
+    row_start_ = rank_ * local_rows_;
+  } else {
+    local_rows_ = rows_per_proc_;
+    row_start_ = remainder_ * (rows_per_proc_ + 1) + (rank_ - remainder_) * rows_per_proc_;
+  }
+  row_end_ = row_start_ + local_rows_;
+
+  if (rank_ == 0) {
+    const auto &input = GetInput();
+    int mat_size = n_ * band_;
+    data_.matrix.resize(mat_size);
+    data_.vector.resize(n_);
+
+    std::copy(input.begin() + 2, input.begin() + 2 + mat_size, data_.matrix.begin());
+    std::copy(input.begin() + 2 + mat_size, input.end(), data_.vector.begin());
+  } else {
+    data_.matrix.resize(n_ * band_);
+    data_.vector.resize(n_);
+  }
+
+  MPI_Bcast(data_.matrix.data(), n_ * band_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(data_.vector.data(), n_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  local_matrix_.resize(local_rows_ * band_);
+  local_vector_.resize(local_rows_);
+
+  for (int i = 0; i < local_rows_; ++i) {
+    int global_row = row_start_ + i;
+    std::copy(data_.matrix.begin() + global_row * band_, data_.matrix.begin() + (global_row + 1) * band_,
+              local_matrix_.begin() + i * band_);
+    local_vector_[i] = data_.vector[global_row];
+  }
+
+  solution_.resize(n_, 0.0);
 
   return true;
 }
 
 bool IlinAGaussianMethodMPI::RunImpl() {
-  DistributeData();
-  GaussianEliminationMPI();
-  BackSubstitutionMPI();
-  GatherResults();
+  std::vector<double> pivot_row(band_, 0.0);
+  double pivot_b = 0.0;
+  const double EPS = 1e-12;
 
-  if (rank_ == 0) {
-    GetOutput() = solution_;
-  }
+  for (int k = 0; k < n_; ++k) {
+    double local_max = 0.0;
+    int local_max_global_row = -1;
 
-  return true;
-}
-
-bool IlinAGaussianMethodMPI::PostProcessingImpl() {
-  if (rank_ == 0) {
-    const int n = data_.size;
-    const int m = data_.band_width;
-
-    for (int i = 0; i < n; ++i) {
-      double sum = 0.0;
-      int start_col = std::max(0, i - m + 1);
-      int end_col = std::min(n - 1, i + m - 1);
-
-      for (int j = start_col; j <= end_col; ++j) {
-        int band_index = (j - i + m - 1);
-        sum += data_.matrix[i * m + band_index] * solution_[j];
-      }
-
-      if (std::fabs(sum - data_.vector[i]) > 1e-6) {
-        return false;
-      }
-    }
-  }
-
-  MPI_Barrier(MPI_COMM_WORLD);
-  return true;
-}
-
-bool IlinAGaussianMethodMPI::ReadInputData(const std::vector<double> &input) {
-  data_.size = static_cast<int>(input[0]);
-  data_.band_width = static_cast<int>(input[1]);
-
-  int matrix_elements = data_.size * data_.band_width;
-  int vector_elements = data_.size;
-
-  data_.matrix.resize(matrix_elements);
-  data_.vector.resize(vector_elements);
-
-  std::copy(input.begin() + 2, input.begin() + 2 + matrix_elements, data_.matrix.begin());
-
-  std::copy(input.begin() + 2 + matrix_elements, input.end(), data_.vector.begin());
-
-  return true;
-}
-
-void IlinAGaussianMethodMPI::DistributeData() {
-  const int n = data_.size;
-  const int m = data_.band_width;
-
-  int rows_per_proc = n / proc_count_;
-  int remainder = n % proc_count_;
-
-  row_start_ = rank_ * rows_per_proc + std::min(rank_, remainder);
-  row_end_ = row_start_ + rows_per_proc + (rank_ < remainder ? 1 : 0) - 1;
-  local_rows_ = row_end_ - row_start_ + 1;
-
-  std::vector<int> send_counts(proc_count_);
-  std::vector<int> displs(proc_count_);
-
-  for (int proc = 0; proc < proc_count_; ++proc) {
-    int proc_rows = rows_per_proc + (proc < remainder ? 1 : 0);
-    send_counts[proc] = proc_rows * m;
-    displs[proc] = (proc == 0) ? 0 : (displs[proc - 1] + send_counts[proc - 1]);
-  }
-
-  local_matrix_.resize(local_rows_ * m);
-  MPI_Scatterv(data_.matrix.data(), send_counts.data(), displs.data(), MPI_DOUBLE, local_matrix_.data(),
-               local_rows_ * m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  std::vector<int> vec_counts(proc_count_);
-  std::vector<int> vec_displs(proc_count_);
-
-  for (int proc = 0; proc < proc_count_; ++proc) {
-    int proc_rows = rows_per_proc + (proc < remainder ? 1 : 0);
-    vec_counts[proc] = proc_rows;
-    vec_displs[proc] = (proc == 0) ? 0 : (vec_displs[proc - 1] + vec_counts[proc - 1]);
-  }
-
-  local_vector_.resize(local_rows_);
-  MPI_Scatterv(data_.vector.data(), vec_counts.data(), vec_displs.data(), MPI_DOUBLE, local_vector_.data(), local_rows_,
-               MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  local_solution_.resize(local_rows_);
-}
-
-void IlinAGaussianMethodMPI::GaussianEliminationMPI() {
-  const int n = data_.size;
-  const int m = data_.band_width;
-
-  for (int k = 0; k < n; ++k) {
-    int proc_with_k = k / (n / proc_count_ + (n % proc_count_ > 0 ? 1 : 0));
-    if (proc_with_k >= proc_count_) {
-      proc_with_k = proc_count_ - 1;
-    }
-
-    double max_val = 0.0;
-    int max_row = k;
-
-    if (rank_ == proc_with_k) {
-      int local_k = k - row_start_;
-      int band_index_kk = (k - k + m - 1);
-      max_val = std::fabs(local_matrix_[local_k * m + band_index_kk]);
-      max_row = k;
-
-      for (int i = local_k; i < local_rows_ && (row_start_ + i) < std::min(n, row_start_ + local_rows_); ++i) {
-        int global_i = row_start_ + i;
-        if (global_i <= std::min(n - 1, k + m - 1)) {
-          int band_index = (k - global_i + m - 1);
-          if (band_index >= 0) {
-            double val = std::fabs(local_matrix_[i * m + band_index]);
-            if (val > max_val) {
-              max_val = val;
-              max_row = global_i;
-            }
+    for (int i = 0; i < local_rows_; ++i) {
+      int global_row = row_start_ + i;
+      if (global_row >= k) {
+        int diag_idx = band_ - 1 - (global_row - k);
+        if (diag_idx >= 0 && diag_idx < band_) {
+          double val = std::fabs(local_matrix_[i * band_ + diag_idx]);
+          if (val > local_max) {
+            local_max = val;
+            local_max_global_row = global_row;
           }
         }
       }
     }
 
     struct {
-      double value;
-      int index;
-    } local_max, global_max;
+      double max_val;
+      int max_row;
+    } local_data{local_max, local_max_global_row}, global_data{0.0, -1};
 
-    local_max.value = max_val;
-    local_max.index = max_row;
+    MPI_Allreduce(&local_data, &global_data, 1, MPI_DOUBLE_INT, MPI_MAXLOC, MPI_COMM_WORLD);
 
-    MPI_Allreduce(&local_max, &global_max, 1, MPI_DOUBLE_INT, MPI_MAXLOC, MPI_COMM_WORLD);
+    int global_max_row = global_data.max_row;
+    double global_max_val = global_data.max_val;
 
-    max_row = global_max.index;
-    int proc_with_max = max_row / (n / proc_count_ + (n % proc_count_ > 0 ? 1 : 0));
+    if (global_max_val < EPS) {
+      solution_[k] = 0.0;
+      continue;
+    }
 
-    if (max_row != k) {
-      std::vector<double> row_k(m, 0.0);
-      double vec_k = 0.0;
-
-      if (rank_ == proc_with_k) {
-        int local_k = k - row_start_;
-        std::copy(local_matrix_.begin() + local_k * m, local_matrix_.begin() + local_k * m + m, row_k.begin());
-        vec_k = local_vector_[local_k];
-      }
-
-      std::vector<double> row_max(m, 0.0);
-      double vec_max = 0.0;
-
-      if (rank_ == proc_with_max) {
-        int local_max_row = max_row - row_start_;
-        std::copy(local_matrix_.begin() + local_max_row * m, local_matrix_.begin() + local_max_row * m + m,
-                  row_max.begin());
-        vec_max = local_vector_[local_max_row];
-      }
-
-      MPI_Bcast(row_k.data(), m, MPI_DOUBLE, proc_with_k, MPI_COMM_WORLD);
-      MPI_Bcast(&vec_k, 1, MPI_DOUBLE, proc_with_k, MPI_COMM_WORLD);
-      MPI_Bcast(row_max.data(), m, MPI_DOUBLE, proc_with_max, MPI_COMM_WORLD);
-      MPI_Bcast(&vec_max, 1, MPI_DOUBLE, proc_with_max, MPI_COMM_WORLD);
-
-      if (rank_ == proc_with_k) {
-        int local_k = k - row_start_;
-        std::copy(row_max.begin(), row_max.end(), local_matrix_.begin() + local_k * m);
-        local_vector_[local_k] = vec_max;
-      }
-
-      if (rank_ == proc_with_max) {
-        int local_max_row = max_row - row_start_;
-        std::copy(row_k.begin(), row_k.end(), local_matrix_.begin() + local_max_row * m);
-        local_vector_[local_max_row] = vec_k;
+    int pivot_owner = -1;
+    if (global_max_row >= 0) {
+      if (global_max_row < remainder_ * (rows_per_proc_ + 1)) {
+        pivot_owner = global_max_row / (rows_per_proc_ + 1);
+      } else {
+        pivot_owner = remainder_ + (global_max_row - remainder_ * (rows_per_proc_ + 1)) / rows_per_proc_;
       }
     }
 
-    std::vector<double> pivot_row(m, 0.0);
-    double pivot_vec = 0.0;
+    if (pivot_owner == rank_) {
+      int local_pivot_idx = -1;
+      for (int i = 0; i < local_rows_; ++i) {
+        if (row_start_ + i == global_max_row) {
+          local_pivot_idx = i;
+          break;
+        }
+      }
 
-    if (rank_ == proc_with_k) {
-      int local_k = k - row_start_;
-      std::copy(local_matrix_.begin() + local_k * m, local_matrix_.begin() + local_k * m + m, pivot_row.begin());
-      pivot_vec = local_vector_[local_k];
+      if (local_pivot_idx >= 0) {
+        std::copy(&local_matrix_[local_pivot_idx * band_], &local_matrix_[local_pivot_idx * band_] + band_,
+                  pivot_row.begin());
+        pivot_b = local_vector_[local_pivot_idx];
+      }
     }
 
-    MPI_Bcast(pivot_row.data(), m, MPI_DOUBLE, proc_with_k, MPI_COMM_WORLD);
-    MPI_Bcast(&pivot_vec, 1, MPI_DOUBLE, proc_with_k, MPI_COMM_WORLD);
+    MPI_Bcast(pivot_row.data(), band_, MPI_DOUBLE, pivot_owner, MPI_COMM_WORLD);
+    MPI_Bcast(&pivot_b, 1, MPI_DOUBLE, pivot_owner, MPI_COMM_WORLD);
 
-    int band_index_kk = (k - k + m - 1);
-    double pivot_diag = pivot_row[band_index_kk];
+    if (global_max_row != k) {
+      int k_owner = -1;
+      if (k < remainder_ * (rows_per_proc_ + 1)) {
+        k_owner = k / (rows_per_proc_ + 1);
+      } else {
+        k_owner = remainder_ + (k - remainder_ * (rows_per_proc_ + 1)) / rows_per_proc_;
+      }
 
-    if (std::fabs(pivot_diag) < 1e-12) {
+      if (k_owner == rank_) {
+        int k_local_idx = -1;
+        for (int i = 0; i < local_rows_; ++i) {
+          if (row_start_ + i == k) {
+            k_local_idx = i;
+            break;
+          }
+        }
+
+        if (k_local_idx >= 0) {
+          if (pivot_owner == rank_) {
+            int pivot_local_idx = -1;
+            for (int i = 0; i < local_rows_; ++i) {
+              if (row_start_ + i == global_max_row) {
+                pivot_local_idx = i;
+                break;
+              }
+            }
+
+            if (pivot_local_idx >= 0) {
+              std::swap_ranges(&local_matrix_[k_local_idx * band_], &local_matrix_[k_local_idx * band_] + band_,
+                               &local_matrix_[pivot_local_idx * band_]);
+              std::swap(local_vector_[k_local_idx], local_vector_[pivot_local_idx]);
+            }
+          } else {
+            std::vector<double> temp_row(band_);
+            double temp_b;
+            MPI_Status status;
+
+            MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, pivot_owner, 0, MPI_COMM_WORLD, &status);
+            MPI_Recv(&temp_b, 1, MPI_DOUBLE, pivot_owner, 1, MPI_COMM_WORLD, &status);
+
+            std::copy(temp_row.begin(), temp_row.end(), &local_matrix_[k_local_idx * band_]);
+            local_vector_[k_local_idx] = temp_b;
+
+            MPI_Send(&local_matrix_[k_local_idx * band_], band_, MPI_DOUBLE, pivot_owner, 2, MPI_COMM_WORLD);
+            MPI_Send(&local_vector_[k_local_idx], 1, MPI_DOUBLE, pivot_owner, 3, MPI_COMM_WORLD);
+          }
+        }
+      } else if (pivot_owner == rank_) {
+        int pivot_local_idx = -1;
+        for (int i = 0; i < local_rows_; ++i) {
+          if (row_start_ + i == global_max_row) {
+            pivot_local_idx = i;
+            break;
+          }
+        }
+
+        if (pivot_local_idx >= 0) {
+          MPI_Send(&local_matrix_[pivot_local_idx * band_], band_, MPI_DOUBLE, k_owner, 0, MPI_COMM_WORLD);
+          MPI_Send(&local_vector_[pivot_local_idx], 1, MPI_DOUBLE, k_owner, 1, MPI_COMM_WORLD);
+
+          std::vector<double> temp_row(band_);
+          double temp_b;
+          MPI_Status status;
+
+          MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, k_owner, 2, MPI_COMM_WORLD, &status);
+          MPI_Recv(&temp_b, 1, MPI_DOUBLE, k_owner, 3, MPI_COMM_WORLD, &status);
+
+          std::copy(temp_row.begin(), temp_row.end(), &local_matrix_[pivot_local_idx * band_]);
+          local_vector_[pivot_local_idx] = temp_b;
+        }
+      }
+    }
+
+    double pivot = pivot_row[band_ - 1];
+    if (std::fabs(pivot) < EPS) {
       continue;
     }
 
     for (int i = 0; i < local_rows_; ++i) {
-      int global_i = row_start_ + i;
+      int global_row = row_start_ + i;
+      if (global_row > k) {
+        int factor_idx = band_ - 1 - (global_row - k);
+        if (factor_idx >= 0 && factor_idx < band_) {
+          double factor = local_matrix_[i * band_ + factor_idx] / pivot;
 
-      if (global_i > k && global_i <= std::min(n - 1, k + m - 1)) {
-        int band_index_ik = (k - global_i + m - 1);
-        if (band_index_ik < 0 || band_index_ik >= m) {
-          continue;
-        }
+          if (std::fabs(factor) > EPS) {
+            for (int j = 0; j < band_; ++j) {
+              int src_idx = j - (global_row - k);
+              if (src_idx >= 0 && src_idx < band_) {
+                local_matrix_[i * band_ + j] -= factor * pivot_row[src_idx];
+              }
+            }
 
-        double factor = local_matrix_[i * m + band_index_ik] / pivot_diag;
-
-        for (int j = k; j <= std::min(n - 1, k + m - 1); ++j) {
-          int band_index_ij = (j - global_i + m - 1);
-          int band_index_kj = (j - k + m - 1);
-
-          if (band_index_ij >= 0 && band_index_ij < m && band_index_kj >= 0 && band_index_kj < m) {
-            local_matrix_[i * m + band_index_ij] -= factor * pivot_row[band_index_kj];
+            local_vector_[i] -= factor * pivot_b;
           }
         }
-
-        local_vector_[i] -= factor * pivot_vec;
       }
     }
   }
-}
 
-void IlinAGaussianMethodMPI::BackSubstitutionMPI() {
-  const int n = data_.size;
-  const int m = data_.band_width;
+  std::vector<double> recv_matrix;
+  std::vector<double> recv_vector;
 
-  std::vector<double> global_solution(n, 0.0);
+  if (rank_ == 0) {
+    recv_matrix.resize(n_ * band_);
+    recv_vector.resize(n_);
+  }
 
-  for (int i = n - 1; i >= 0; --i) {
-    int proc_with_i = i / (n / proc_count_ + (n % proc_count_ > 0 ? 1 : 0));
+  std::vector<int> recv_counts(size_);
+  std::vector<int> displs(size_);
 
-    double diag_element = 0.0;
-    double rhs = 0.0;
+  for (int i = 0; i < size_; ++i) {
+    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+    recv_counts[i] = rows_for_i * band_;
+    displs[i] = (i == 0) ? 0 : displs[i - 1] + recv_counts[i - 1];
+  }
 
-    if (rank_ == proc_with_i) {
-      int local_i = i - row_start_;
-      int band_index_ii = (i - i + m - 1);
-      diag_element = local_matrix_[local_i * m + band_index_ii];
-      rhs = local_vector_[local_i];
+  MPI_Gatherv(local_matrix_.data(), local_rows_ * band_, MPI_DOUBLE, recv_matrix.data(), recv_counts.data(),
+              displs.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  std::vector<int> vec_counts(size_);
+  std::vector<int> vec_displs(size_);
+
+  for (int i = 0; i < size_; ++i) {
+    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+    vec_counts[i] = rows_for_i;
+    vec_displs[i] = (i == 0) ? 0 : vec_displs[i - 1] + vec_counts[i - 1];
+  }
+
+  MPI_Gatherv(local_vector_.data(), local_rows_, MPI_DOUBLE, recv_vector.data(), vec_counts.data(), vec_displs.data(),
+              MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  if (rank_ == 0) {
+    std::vector<double> full_matrix(n_ * band_);
+    std::vector<double> full_vector(n_);
+
+    for (int i = 0; i < size_; ++i) {
+      int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+      int start_row = vec_displs[i];
+
+      for (int j = 0; j < rows_for_i; ++j) {
+        int global_row = start_row + j;
+        std::copy(&recv_matrix[displs[i] + j * band_], &recv_matrix[displs[i] + j * band_] + band_,
+                  &full_matrix[global_row * band_]);
+        full_vector[global_row] = recv_vector[vec_displs[i] + j];
+      }
     }
 
-    MPI_Bcast(&diag_element, 1, MPI_DOUBLE, proc_with_i, MPI_COMM_WORLD);
-    MPI_Bcast(&rhs, 1, MPI_DOUBLE, proc_with_i, MPI_COMM_WORLD);
+    for (int i = n_ - 1; i >= 0; --i) {
+      double sum = 0.0;
 
-    double sum = 0.0;
-
-    for (int j = 0; j < local_rows_; ++j) {
-      int global_j = row_start_ + j;
-      if (global_j > i && global_j <= std::min(n - 1, i + m - 1)) {
-        int band_index = (global_j - i + m - 1);
-        if (band_index >= 0 && band_index < m) {
-          sum += local_matrix_[j * m + band_index] * global_solution[global_j];
+      for (int j = i + 1; j < std::min(n_, i + band_); ++j) {
+        int idx = band_ - 1 + (j - i);
+        if (idx < band_) {
+          sum += full_matrix[i * band_ + idx] * solution_[j];
         }
       }
+
+      int diag_idx = band_ - 1;
+      double diag = full_matrix[i * band_ + diag_idx];
+
+      if (std::fabs(diag) > EPS) {
+        solution_[i] = (full_vector[i] - sum) / diag;
+      } else {
+        solution_[i] = 0.0;
+      }
     }
 
-    double total_sum = 0.0;
-    MPI_Allreduce(&sum, &total_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-    if (std::fabs(diag_element) > 1e-12) {
-      global_solution[i] = (rhs - total_sum) / diag_element;
-    } else {
-      global_solution[i] = 0.0;
+    for (int i = 0; i < n_; ++i) {
+      if (!std::isfinite(solution_[i])) {
+        solution_[i] = 0.0;
+      }
     }
-
-    MPI_Bcast(&global_solution[i], 1, MPI_DOUBLE, proc_with_i, MPI_COMM_WORLD);
   }
 
-  for (int i = 0; i < local_rows_; ++i) {
-    int global_i = row_start_ + i;
-    local_solution_[i] = global_solution[global_i];
-  }
+  MPI_Bcast(solution_.data(), n_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  GetOutput() = solution_;
+
+  return true;
 }
 
-void IlinAGaussianMethodMPI::GatherResults() {
-  const int n = data_.size;
+bool IlinAGaussianMethodMPI::PostProcessingImpl() {
+  MPI_Barrier(MPI_COMM_WORLD);
 
-  std::vector<int> recv_counts(proc_count_);
-  std::vector<int> displs(proc_count_);
+  double local_max_error = 0.0;
 
-  int rows_per_proc = n / proc_count_;
-  int remainder = n % proc_count_;
+  for (int i = row_start_; i < row_end_; ++i) {
+    double sum = 0.0;
+    for (int j = 0; j < n_; ++j) {
+      int band_idx = (j - i + band_ - 1);
+      if (band_idx >= 0 && band_idx < band_) {
+        double matrix_elem = data_.matrix[i * band_ + band_idx];
+        sum += matrix_elem * solution_[j];
+      }
+    }
 
-  for (int proc = 0; proc < proc_count_; ++proc) {
-    recv_counts[proc] = rows_per_proc + (proc < remainder ? 1 : 0);
-    displs[proc] = (proc == 0) ? 0 : (displs[proc - 1] + recv_counts[proc - 1]);
+    double vector_elem = data_.vector[i];
+    double error = std::fabs(sum - vector_elem);
+    if (error > local_max_error) {
+      local_max_error = error;
+    }
   }
 
-  MPI_Gatherv(local_solution_.data(), local_rows_, MPI_DOUBLE, solution_.data(), recv_counts.data(), displs.data(),
-              MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  double global_max_error;
+  MPI_Allreduce(&local_max_error, &global_max_error, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+  return global_max_error < 1e-6;
 }
 
 }  // namespace ilin_a_gaussian_method_horizontal_band_scheme

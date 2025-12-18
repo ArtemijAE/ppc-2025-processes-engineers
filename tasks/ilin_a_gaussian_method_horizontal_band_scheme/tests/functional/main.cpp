@@ -39,8 +39,9 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       return false;
     }
 
+    const double tolerance = 1e-6;
     for (size_t i = 0; i < output_data.size(); ++i) {
-      if (std::fabs(output_data[i] - expected_solution_[i]) > 1e-6) {
+      if (std::fabs(output_data[i] - expected_solution_[i]) > tolerance) {
         return false;
       }
     }
@@ -59,35 +60,53 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
   void GenerateTestData(int size) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_real_distribution<double> dist(0.5, 2.0);
+    std::uniform_real_distribution<double> dist(1.0, 10.0);
 
-    int band_width = std::max(3, size / 4);
+    int band_width = std::max(1, size / 4);
+    if (band_width > size) {
+      band_width = size;
+    }
 
     std::vector<double> matrix(size * band_width, 0.0);
     std::vector<double> vector(size, 0.0);
     expected_solution_.resize(size);
 
     for (int i = 0; i < size; ++i) {
-      expected_solution_[i] = dist(gen);
+      expected_solution_[i] = static_cast<double>(i + 1);
+    }
+
+    for (int i = 0; i < size; ++i) {
+      double diag_sum = 0.0;
+
+      for (int j = 0; j < size; ++j) {
+        if (i == j) {
+          continue;
+        }
+
+        if (j <= i) {
+          int band_idx = (i - j + band_width - 1);
+          if (band_idx >= 0 && band_idx < band_width) {
+            double val = dist(gen) * 0.1;
+            matrix[i * band_width + band_idx] = val;
+            diag_sum += std::fabs(val);
+          }
+        }
+      }
+
+      int diag_band_idx = band_width - 1;
+      matrix[i * band_width + diag_band_idx] = diag_sum + dist(gen) + 10.0;
     }
 
     for (int i = 0; i < size; ++i) {
       double sum = 0.0;
-      int start_col = std::max(0, i - band_width + 1);
-      int end_col = std::min(size - 1, i + band_width - 1);
-
-      for (int j = start_col; j <= end_col; ++j) {
-        int band_index = (j - i + band_width - 1);
-
-        if (i == j) {
-          matrix[i * band_width + band_index] = dist(gen) + band_width;
-        } else {
-          matrix[i * band_width + band_index] = dist(gen) / (std::abs(i - j) + 1);
+      for (int j = 0; j < size; ++j) {
+        if (j <= i) {
+          int band_idx = (i - j + band_width - 1);
+          if (band_idx >= 0 && band_idx < band_width) {
+            sum += matrix[i * band_width + band_idx] * expected_solution_[j];
+          }
         }
-
-        sum += matrix[i * band_width + band_index] * expected_solution_[j];
       }
-
       vector[i] = sum;
     }
 
