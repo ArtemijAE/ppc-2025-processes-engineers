@@ -20,6 +20,16 @@ class IlinAGaussianMethodMPI : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
+  void InitializeMPI();
+  void BroadcastInputData();
+  void ScatterLocalData();
+  void FindGlobalPivot(int k, int &global_max_row, double &global_max_val, std::vector<double> &pivot_row,
+                       double &pivot_b, int &pivot_owner) const;
+  void SwapRowsIfNeeded(int k, int global_max_row, int pivot_owner);
+  void EliminateRows(int k, const std::vector<double> &pivot_row, double pivot_b);
+  void GatherResults();
+  void BackSubstitution();
+
   MatrixData data_;
   std::vector<double> solution_;
 
@@ -34,6 +44,7 @@ class IlinAGaussianMethodMPI : public BaseTask {
   int remainder_ = 0;
   std::vector<double> local_matrix_;
   std::vector<double> local_vector_;
+  std::vector<double> pivot_row_buf_;
 };
 
 }  // namespace ilin_a_gaussian_method_horizontal_band_scheme
