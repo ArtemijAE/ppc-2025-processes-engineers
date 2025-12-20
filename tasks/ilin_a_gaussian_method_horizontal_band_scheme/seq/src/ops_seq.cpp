@@ -61,27 +61,18 @@ bool IlinAGaussianMethodSEQ::RunImpl() {
   std::vector<double> b = data_.vector;
   std::vector<double> matrix = data_.matrix;
 
-  for (int k = 0; k < n; ++k) {
-    int max_row = k;
-    double max_val = 0.0;
+  ForwardElimination(n, m, matrix, b);
+  BackwardSubstitution(n, m, matrix, b);
 
-    for (int i = k; i < std::min(n, k + m); ++i) {
-      int diag_idx = m - 1 - (i - k);
-      if (diag_idx >= 0) {
-        double val = std::fabs(matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + diag_idx]);
-        if (val > max_val) {
-          max_val = val;
-          max_row = i;
-        }
-      }
-    }
+  return true;
+}
+
+void IlinAGaussianMethodSEQ::ForwardElimination(int n, int m, std::vector<double> &matrix, std::vector<double> &b) {
+  for (int k = 0; k < n; ++k) {
+    int max_row = FindPivotRow(k, n, m, matrix);
 
     if (max_row != k) {
-      for (int j = 0; j < m; ++j) {
-        std::swap(matrix[(static_cast<size_t>(k) * static_cast<size_t>(m)) + j],
-                  matrix[(static_cast<size_t>(max_row) * static_cast<size_t>(m)) + j]);
-      }
-      std::swap(b[static_cast<size_t>(k)], b[static_cast<size_t>(max_row)]);
+      SwapRows(k, max_row, m, matrix, b);
     }
 
     int diag_idx = m - 1;
@@ -91,25 +82,58 @@ bool IlinAGaussianMethodSEQ::RunImpl() {
     }
 
     for (int i = k + 1; i < std::min(n, k + m); ++i) {
-      int factor_idx = m - 1 - (i - k);
-      if (factor_idx < 0) {
-        continue;
+      EliminateRow(i, k, m, matrix, b, pivot);
+    }
+  }
+}
+
+int IlinAGaussianMethodSEQ::FindPivotRow(int k, int n, int m, const std::vector<double> &matrix) const {
+  int max_row = k;
+  double max_val = 0.0;
+
+  for (int i = k; i < std::min(n, k + m); ++i) {
+    int diag_idx = m - 1 - (i - k);
+    if (diag_idx >= 0) {
+      double val = std::fabs(matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + diag_idx]);
+      if (val > max_val) {
+        max_val = val;
+        max_row = i;
       }
+    }
+  }
+  return max_row;
+}
 
-      double factor = matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + factor_idx] / pivot;
+void IlinAGaussianMethodSEQ::SwapRows(int row1, int row2, int m, std::vector<double> &matrix, std::vector<double> &b) {
+  for (int j = 0; j < m; ++j) {
+    std::swap(matrix[(static_cast<size_t>(row1) * static_cast<size_t>(m)) + j],
+              matrix[(static_cast<size_t>(row2) * static_cast<size_t>(m)) + j]);
+  }
+  std::swap(b[static_cast<size_t>(row1)], b[static_cast<size_t>(row2)]);
+}
 
-      for (int j = 0; j < m; ++j) {
-        int src_idx = j - (i - k);
-        if (src_idx >= 0 && src_idx < m) {
-          matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + j] -=
-              factor * matrix[(static_cast<size_t>(k) * static_cast<size_t>(m)) + src_idx];
-        }
-      }
+void IlinAGaussianMethodSEQ::EliminateRow(int i, int k, int m, std::vector<double> &matrix, std::vector<double> &b,
+                                          double pivot) {
+  int factor_idx = m - 1 - (i - k);
+  if (factor_idx < 0) {
+    return;
+  }
 
-      b[static_cast<size_t>(i)] -= factor * b[static_cast<size_t>(k)];
+  double factor = matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + factor_idx] / pivot;
+
+  for (int j = 0; j < m; ++j) {
+    int src_idx = j - (i - k);
+    if (src_idx >= 0 && src_idx < m) {
+      matrix[(static_cast<size_t>(i) * static_cast<size_t>(m)) + j] -=
+          factor * matrix[(static_cast<size_t>(k) * static_cast<size_t>(m)) + src_idx];
     }
   }
 
+  b[static_cast<size_t>(i)] -= factor * b[static_cast<size_t>(k)];
+}
+
+void IlinAGaussianMethodSEQ::BackwardSubstitution(int n, int m, const std::vector<double> &matrix,
+                                                  const std::vector<double> &b) {
   for (int i = n - 1; i >= 0; --i) {
     double sum = 0.0;
 
@@ -128,8 +152,6 @@ bool IlinAGaussianMethodSEQ::RunImpl() {
       solution_[static_cast<size_t>(i)] = 0.0;
     }
   }
-
-  return true;
 }
 
 bool IlinAGaussianMethodSEQ::PostProcessingImpl() {

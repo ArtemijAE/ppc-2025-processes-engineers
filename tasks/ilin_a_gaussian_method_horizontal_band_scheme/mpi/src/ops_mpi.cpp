@@ -100,8 +100,10 @@ void IlinAGaussianMethodMPI::ScatterLocalData() {
 
   for (int i = 0; i < local_rows_; ++i) {
     int global_row = row_start_ + i;
-    std::copy(data_.matrix.begin() + (global_row * band_), data_.matrix.begin() + ((global_row + 1) * band_),
-              local_matrix_.begin() + static_cast<ptrdiff_t>(i) * band_);
+    const auto global_row_large = static_cast<std::ptrdiff_t>(global_row);
+    std::copy(data_.matrix.begin() + (global_row_large * band_),
+              data_.matrix.begin() + ((global_row_large + 1) * band_),
+              local_matrix_.begin() + static_cast<std::ptrdiff_t>(i) * band_);
     local_vector_[static_cast<size_t>(i)] = data_.vector[static_cast<size_t>(global_row)];
   }
 
@@ -198,7 +200,7 @@ void IlinAGaussianMethodMPI::BroadcastPivotData(int pivot_owner, std::vector<dou
     int local_pivot_idx = FindLocalRowIndex(global_max_row);
     if (local_pivot_idx >= 0) {
       const double *row_start = &local_matrix_[(static_cast<size_t>(local_pivot_idx) * static_cast<size_t>(band_))];
-      std::copy(row_start, row_start + band_, pivot_row.begin());
+      std::ranges::copy(row_start, row_start + band_, pivot_row.begin());
       pivot_b = local_vector_[static_cast<size_t>(local_pivot_idx)];
     }
   }
@@ -269,8 +271,7 @@ void IlinAGaussianMethodMPI::ExchangeRowsWithRemote(int k_local_idx, int pivot_o
   MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, pivot_owner, 0, MPI_COMM_WORLD, &status);
   MPI_Recv(&temp_b, 1, MPI_DOUBLE, pivot_owner, 1, MPI_COMM_WORLD, &status);
 
-  std::copy(temp_row.begin(), temp_row.end(),
-            &local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))]);
+  std::ranges::copy(temp_row, &local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))]);
   local_vector_[static_cast<size_t>(k_local_idx)] = temp_b;
 
   MPI_Send(&local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))], band_, MPI_DOUBLE,
@@ -290,8 +291,7 @@ void IlinAGaussianMethodMPI::ReceiveRowFromRemote(int pivot_local_idx, int k_own
   MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, k_owner, 2, MPI_COMM_WORLD, &status);
   MPI_Recv(&temp_b, 1, MPI_DOUBLE, k_owner, 3, MPI_COMM_WORLD, &status);
 
-  std::copy(temp_row.begin(), temp_row.end(),
-            &local_matrix_[(static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_))]);
+  std::ranges::copy(temp_row, &local_matrix_[(static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_))]);
   local_vector_[static_cast<size_t>(pivot_local_idx)] = temp_b;
 }
 
@@ -387,7 +387,8 @@ void IlinAGaussianMethodMPI::GatherAllData(std::vector<double> &recv_matrix, std
 
 void IlinAGaussianMethodMPI::ReconstructFullMatrix(const std::vector<double> &recv_matrix,
                                                    const std::vector<double> &recv_vector,
-                                                   std::vector<double> &full_matrix, std::vector<double> &full_vector) {
+                                                   std::vector<double> &full_matrix,
+                                                   std::vector<double> &full_vector) const {
   std::vector<int> displs(static_cast<size_t>(size_));
   std::vector<int> vec_displs(static_cast<size_t>(size_));
 
@@ -408,8 +409,9 @@ void IlinAGaussianMethodMPI::ReconstructFullMatrix(const std::vector<double> &re
 
     for (int j = 0; j < rows_for_i; ++j) {
       int global_row = start_row + j;
-      std::copy(&recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))],
-                &recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))] + band_,
+      const std::ptrdiff_t offset = static_cast<std::ptrdiff_t>(displs[static_cast<size_t>(i)]) + (j * band_);
+      std::copy(&recv_matrix[static_cast<size_t>(offset)],
+                &recv_matrix[static_cast<size_t>(offset) + static_cast<size_t>(band_)],
                 &full_matrix[(static_cast<size_t>(global_row) * static_cast<size_t>(band_))]);
       full_vector[static_cast<size_t>(global_row)] =
           recv_vector[static_cast<size_t>(vec_displs[static_cast<size_t>(i)] + j)];

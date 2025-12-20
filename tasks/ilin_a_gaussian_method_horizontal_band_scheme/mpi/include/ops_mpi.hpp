@@ -29,9 +29,9 @@ class IlinAGaussianMethodMPI : public BaseTask {
 
   double FindLocalPivotValue(int k, int &local_max_row) const;
   void BroadcastPivotData(int pivot_owner, std::vector<double> &pivot_row, double &pivot_b, int global_max_row) const;
-  int CalculateRowOwner(int row) const;
-  int CalculatePivotOwner(int global_max_row) const;
-  int FindLocalRowIndex(int global_row) const;
+  [[nodiscard]] int CalculateRowOwner(int row) const;
+  [[nodiscard]] int CalculatePivotOwner(int global_max_row) const;
+  [[nodiscard]] int FindLocalRowIndex(int global_row) const;
 
   void HandleRowSwapLocal(int k_local_idx, int pivot_owner, int global_max_row);
   void HandleRowSwapRemote(int k_owner, int global_max_row);
@@ -44,7 +44,7 @@ class IlinAGaussianMethodMPI : public BaseTask {
 
   void GatherAllData(std::vector<double> &recv_matrix, std::vector<double> &recv_vector);
   void ReconstructFullMatrix(const std::vector<double> &recv_matrix, const std::vector<double> &recv_vector,
-                             std::vector<double> &full_matrix, std::vector<double> &full_vector);
+                             std::vector<double> &full_matrix, std::vector<double> &full_vector) const;
   void SolveBackwardSubstitution(const std::vector<double> &full_matrix, const std::vector<double> &full_vector);
 
   MatrixData data_;
