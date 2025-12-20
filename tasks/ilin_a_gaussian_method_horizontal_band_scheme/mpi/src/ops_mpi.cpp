@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "ilin_a_gaussian_method_horizontal_band_scheme/common/include/common.hpp"
+
 namespace ilin_a_gaussian_method_horizontal_band_scheme {
 
 IlinAGaussianMethodMPI::IlinAGaussianMethodMPI(const InType &in) {
@@ -18,24 +20,24 @@ IlinAGaussianMethodMPI::IlinAGaussianMethodMPI(const InType &in) {
 bool IlinAGaussianMethodMPI::ValidationImpl() {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
 
-  if (rank_ == 0) {
-    const auto &input = GetInput();
-    if (input.size() < 4) {
-      return false;
-    }
-
-    int size = static_cast<int>(input[0]);
-    int band_width = static_cast<int>(input[1]);
-
-    if (size <= 0 || band_width <= 0 || band_width > size) {
-      return false;
-    }
-
-    size_t expected_count = 2 + (size * band_width) + size;
-    return input.size() == expected_count;
+  if (rank_ != 0) {
+    return true;
   }
 
-  return true;
+  const auto &input = GetInput();
+  if (input.size() < 4) {
+    return false;
+  }
+
+  int size = static_cast<int>(input[0]);
+  int band_width = static_cast<int>(input[1]);
+
+  if (size <= 0 || band_width <= 0 || band_width > size) {
+    return false;
+  }
+
+  size_t expected_count = 2 + (size * band_width) + size;
+  return input.size() == expected_count;
 }
 
 bool IlinAGaussianMethodMPI::PreProcessingImpl() {
@@ -71,7 +73,7 @@ void IlinAGaussianMethodMPI::BroadcastInputData() {
     row_start_ = rank_ * local_rows_;
   } else {
     local_rows_ = rows_per_proc_;
-    row_start_ = remainder_ * (rows_per_proc_ + 1) + ((rank_ - remainder_) * rows_per_proc_);
+    row_start_ = (remainder_ * (rows_per_proc_ + 1)) + ((rank_ - remainder_) * rows_per_proc_);
   }
   row_end_ = row_start_ + local_rows_;
 
@@ -98,8 +100,8 @@ void IlinAGaussianMethodMPI::ScatterLocalData() {
 
   for (int i = 0; i < local_rows_; ++i) {
     int global_row = row_start_ + i;
-    std::copy(data_.matrix.begin() + global_row * band_, data_.matrix.begin() + (global_row + 1) * band_,
-              local_matrix_.begin() + static_cast<size_t>(i) * static_cast<size_t>(band_));
+    std::copy(data_.matrix.begin() + (global_row * band_), data_.matrix.begin() + ((global_row + 1) * band_),
+              local_matrix_.begin() + static_cast<ptrdiff_t>(i) * band_);
     local_vector_[static_cast<size_t>(i)] = data_.vector[static_cast<size_t>(global_row)];
   }
 
@@ -108,83 +110,95 @@ void IlinAGaussianMethodMPI::ScatterLocalData() {
 }
 
 bool IlinAGaussianMethodMPI::RunImpl() {
+  ProcessForwardElimination();
+  ProcessBackwardSubstitution();
+  GetOutput() = solution_;
+  return true;
+}
+
+void IlinAGaussianMethodMPI::ProcessForwardElimination() {
   const double eps = 1e-12;
   pivot_row_buf_.assign(band_, 0.0);
   double pivot_b = 0.0;
 
   for (int k = 0; k < n_; ++k) {
-    int global_max_row = -1;
-    double global_max_val = 0.0;
-    std::vector<double> pivot_row(band_, 0.0);
-    int pivot_owner = -1;
+    double local_max = 0.0;
+    int local_max_row = -1;
 
-    FindGlobalPivot(k, global_max_row, global_max_val, pivot_row, pivot_b, pivot_owner);
+    local_max = FindLocalPivotValue(k, local_max_row);
+
+    struct {
+      double max_val;
+      int max_row;
+    } local_data{.max_val = local_max, .max_row = local_max_row}, global_data{.max_val = 0.0, .max_row = -1};
+
+    MPI_Allreduce(&local_data, &global_data, 1, MPI_DOUBLE_INT, MPI_MAXLOC, MPI_COMM_WORLD);
+
+    int global_max_row = global_data.max_row;
+    double global_max_val = global_data.max_val;
 
     if (global_max_val < eps) {
       solution_[static_cast<size_t>(k)] = 0.0;
       continue;
     }
 
-    SwapRowsIfNeeded(k, global_max_row, pivot_owner);
-    EliminateRows(k, pivot_row, pivot_b);
+    int pivot_owner = CalculatePivotOwner(global_max_row);
+    BroadcastPivotData(pivot_owner, pivot_row_buf_, pivot_b, global_max_row);
+
+    if (global_max_row != k) {
+      int k_owner = CalculateRowOwner(k);
+
+      int k_local_idx = FindLocalRowIndex(k);
+      if (k_owner == rank_ && k_local_idx >= 0) {
+        HandleRowSwapLocal(k_local_idx, pivot_owner, global_max_row);
+      } else if (pivot_owner == rank_) {
+        HandleRowSwapRemote(k_owner, global_max_row);
+      }
+    }
+
+    double pivot = pivot_row_buf_[static_cast<size_t>(band_ - 1)];
+    if (std::fabs(pivot) < eps) {
+      continue;
+    }
+
+    for (int i = 0; i < local_rows_; ++i) {
+      EliminateRow(i, k, pivot_row_buf_, pivot_b);
+    }
   }
-
-  BackSubstitution();
-
-  GetOutput() = solution_;
-  return true;
 }
 
-void IlinAGaussianMethodMPI::FindGlobalPivot(int k, int &global_max_row, double &global_max_val,
-                                             std::vector<double> &pivot_row, double &pivot_b, int &pivot_owner) const {
+double IlinAGaussianMethodMPI::FindLocalPivotValue(int k, int &local_max_row) const {
   double local_max = 0.0;
-  int local_max_global_row = -1;
+  local_max_row = -1;
 
   for (int i = 0; i < local_rows_; ++i) {
     int global_row = row_start_ + i;
-    if (global_row >= k) {
-      int diag_idx = band_ - 1 - (global_row - k);
-      if (diag_idx >= 0 && diag_idx < band_) {
-        double val = std::fabs(local_matrix_[static_cast<size_t>(i) * static_cast<size_t>(band_) + diag_idx]);
-        if (val > local_max) {
-          local_max = val;
-          local_max_global_row = global_row;
-        }
-      }
+    if (global_row < k) {
+      continue;
+    }
+
+    int diag_idx = band_ - 1 - (global_row - k);
+    if (diag_idx < 0 || diag_idx >= band_) {
+      continue;
+    }
+
+    double val = std::fabs(local_matrix_[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + diag_idx]);
+    if (val > local_max) {
+      local_max = val;
+      local_max_row = global_row;
     }
   }
 
-  struct {
-    double max_val;
-    int max_row;
-  } local_data{.max_val = local_max, .max_row = local_max_global_row}, global_data{.max_val = 0.0, .max_row = -1};
+  return local_max;
+}
 
-  MPI_Allreduce(&local_data, &global_data, 1, MPI_DOUBLE_INT, MPI_MAXLOC, MPI_COMM_WORLD);
-
-  global_max_row = global_data.max_row;
-  global_max_val = global_data.max_val;
-
-  if (global_max_row >= 0) {
-    if (global_max_row < remainder_ * (rows_per_proc_ + 1)) {
-      pivot_owner = global_max_row / (rows_per_proc_ + 1);
-    } else {
-      pivot_owner = remainder_ + ((global_max_row - remainder_ * (rows_per_proc_ + 1)) / rows_per_proc_);
-    }
-  }
-
+void IlinAGaussianMethodMPI::BroadcastPivotData(int pivot_owner, std::vector<double> &pivot_row, double &pivot_b,
+                                                int global_max_row) const {
   if (pivot_owner == rank_) {
-    int local_pivot_idx = -1;
-    for (int i = 0; i < local_rows_; ++i) {
-      if (row_start_ + i == global_max_row) {
-        local_pivot_idx = i;
-        break;
-      }
-    }
-
+    int local_pivot_idx = FindLocalRowIndex(global_max_row);
     if (local_pivot_idx >= 0) {
-      std::copy(&local_matrix_[static_cast<size_t>(local_pivot_idx) * static_cast<size_t>(band_)],
-                &local_matrix_[static_cast<size_t>(local_pivot_idx) * static_cast<size_t>(band_)] + band_,
-                pivot_row.begin());
+      const double *row_start = &local_matrix_[(static_cast<size_t>(local_pivot_idx) * static_cast<size_t>(band_))];
+      std::copy(row_start, row_start + band_, pivot_row.begin());
       pivot_b = local_vector_[static_cast<size_t>(local_pivot_idx)];
     }
   }
@@ -193,229 +207,248 @@ void IlinAGaussianMethodMPI::FindGlobalPivot(int k, int &global_max_row, double 
   MPI_Bcast(&pivot_b, 1, MPI_DOUBLE, pivot_owner, MPI_COMM_WORLD);
 }
 
-void IlinAGaussianMethodMPI::SwapRowsIfNeeded(int k, int global_max_row, int pivot_owner) {
-  if (global_max_row != k) {
-    int k_owner = -1;
-    if (k < remainder_ * (rows_per_proc_ + 1)) {
-      k_owner = k / (rows_per_proc_ + 1);
-    } else {
-      k_owner = remainder_ + ((k - remainder_ * (rows_per_proc_ + 1)) / rows_per_proc_);
-    }
-
-    if (k_owner == rank_) {
-      int k_local_idx = -1;
-      for (int i = 0; i < local_rows_; ++i) {
-        if (row_start_ + i == k) {
-          k_local_idx = i;
-          break;
-        }
-      }
-
-      if (k_local_idx >= 0) {
-        if (pivot_owner == rank_) {
-          int pivot_local_idx = -1;
-          for (int i = 0; i < local_rows_; ++i) {
-            if (row_start_ + i == global_max_row) {
-              pivot_local_idx = i;
-              break;
-            }
-          }
-
-          if (pivot_local_idx >= 0) {
-            std::swap_ranges(&local_matrix_[static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_)],
-                             &local_matrix_[static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_)] + band_,
-                             &local_matrix_[static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_)]);
-            std::swap(local_vector_[static_cast<size_t>(k_local_idx)],
-                      local_vector_[static_cast<size_t>(pivot_local_idx)]);
-          }
-        } else {
-          std::vector<double> temp_row(band_);
-          double temp_b = 0.0;
-          MPI_Status status;
-
-          MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, pivot_owner, 0, MPI_COMM_WORLD, &status);
-          MPI_Recv(&temp_b, 1, MPI_DOUBLE, pivot_owner, 1, MPI_COMM_WORLD, &status);
-
-          std::ranges::copy(temp_row, &local_matrix_[static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_)]);
-          local_vector_[static_cast<size_t>(k_local_idx)] = temp_b;
-
-          MPI_Send(&local_matrix_[static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_)], band_, MPI_DOUBLE,
-                   pivot_owner, 2, MPI_COMM_WORLD);
-          MPI_Send(&local_vector_[static_cast<size_t>(k_local_idx)], 1, MPI_DOUBLE, pivot_owner, 3, MPI_COMM_WORLD);
-        }
-      }
-    } else if (pivot_owner == rank_) {
-      int pivot_local_idx = -1;
-      for (int i = 0; i < local_rows_; ++i) {
-        if (row_start_ + i == global_max_row) {
-          pivot_local_idx = i;
-          break;
-        }
-      }
-
-      if (pivot_local_idx >= 0) {
-        MPI_Send(&local_matrix_[static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_)], band_, MPI_DOUBLE,
-                 k_owner, 0, MPI_COMM_WORLD);
-        MPI_Send(&local_vector_[static_cast<size_t>(pivot_local_idx)], 1, MPI_DOUBLE, k_owner, 1, MPI_COMM_WORLD);
-
-        std::vector<double> temp_row(band_);
-        double temp_b = 0.0;
-        MPI_Status status;
-
-        MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, k_owner, 2, MPI_COMM_WORLD, &status);
-        MPI_Recv(&temp_b, 1, MPI_DOUBLE, k_owner, 3, MPI_COMM_WORLD, &status);
-
-        std::ranges::copy(temp_row, &local_matrix_[static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_)]);
-        local_vector_[static_cast<size_t>(pivot_local_idx)] = temp_b;
-      }
-    }
+int IlinAGaussianMethodMPI::CalculateRowOwner(int row) const {
+  if (row < (remainder_ * (rows_per_proc_ + 1))) {
+    return row / (rows_per_proc_ + 1);
   }
+  return remainder_ + ((row - remainder_ * (rows_per_proc_ + 1)) / rows_per_proc_);
 }
 
-void IlinAGaussianMethodMPI::EliminateRows(int k, const std::vector<double> &pivot_row, double pivot_b) {
-  const double eps = 1e-12;
-  double pivot = pivot_row[static_cast<size_t>(band_ - 1)];
-  if (std::fabs(pivot) < eps) {
+int IlinAGaussianMethodMPI::CalculatePivotOwner(int global_max_row) const {
+  if (global_max_row < 0) {
+    return -1;
+  }
+  return CalculateRowOwner(global_max_row);
+}
+
+int IlinAGaussianMethodMPI::FindLocalRowIndex(int global_row) const {
+  for (int i = 0; i < local_rows_; ++i) {
+    if (row_start_ + i == global_row) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void IlinAGaussianMethodMPI::HandleRowSwapLocal(int k_local_idx, int pivot_owner, int global_max_row) {
+  if (k_local_idx < 0) {
     return;
   }
 
-  for (int i = 0; i < local_rows_; ++i) {
-    int global_row = row_start_ + i;
-    if (global_row > k) {
-      int factor_idx = band_ - 1 - (global_row - k);
-      if (factor_idx >= 0 && factor_idx < band_) {
-        double factor = local_matrix_[static_cast<size_t>(i) * static_cast<size_t>(band_) + factor_idx] / pivot;
-
-        if (std::fabs(factor) > eps) {
-          for (int j = 0; j < band_; ++j) {
-            int src_idx = j - (global_row - k);
-            if (src_idx >= 0 && src_idx < band_) {
-              local_matrix_[static_cast<size_t>(i) * static_cast<size_t>(band_) + j] -=
-                  factor * pivot_row[static_cast<size_t>(src_idx)];
-            }
-          }
-
-          local_vector_[static_cast<size_t>(i)] -= factor * pivot_b;
-        }
-      }
+  if (pivot_owner == rank_) {
+    int pivot_local_idx = FindLocalRowIndex(global_max_row);
+    if (pivot_local_idx >= 0) {
+      SwapRowsLocally(k_local_idx, pivot_local_idx);
     }
+  } else {
+    ExchangeRowsWithRemote(k_local_idx, pivot_owner);
   }
 }
 
-void IlinAGaussianMethodMPI::GatherResults() {
-  std::vector<double> recv_matrix;
-  std::vector<double> recv_vector;
-
-  if (rank_ == 0) {
-    recv_matrix.resize(static_cast<size_t>(n_) * static_cast<size_t>(band_));
-    recv_vector.resize(static_cast<size_t>(n_));
+void IlinAGaussianMethodMPI::HandleRowSwapRemote(int k_owner, int global_max_row) {
+  int pivot_local_idx = FindLocalRowIndex(global_max_row);
+  if (pivot_local_idx < 0) {
+    return;
   }
 
-  std::vector<int> recv_counts(static_cast<size_t>(size_));
-  std::vector<int> displs(static_cast<size_t>(size_));
-
-  for (int i = 0; i < size_; ++i) {
-    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
-    recv_counts[static_cast<size_t>(i)] = rows_for_i * band_;
-    displs[static_cast<size_t>(i)] =
-        (i == 0) ? 0 : displs[static_cast<size_t>(i - 1)] + recv_counts[static_cast<size_t>(i - 1)];
-  }
-
-  MPI_Gatherv(local_matrix_.data(), local_rows_ * band_, MPI_DOUBLE, recv_matrix.data(), recv_counts.data(),
-              displs.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  std::vector<int> vec_counts(static_cast<size_t>(size_));
-  std::vector<int> vec_displs(static_cast<size_t>(size_));
-
-  for (int i = 0; i < size_; ++i) {
-    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
-    vec_counts[static_cast<size_t>(i)] = rows_for_i;
-    vec_displs[static_cast<size_t>(i)] =
-        (i == 0) ? 0 : vec_displs[static_cast<size_t>(i - 1)] + vec_counts[static_cast<size_t>(i - 1)];
-  }
-
-  MPI_Gatherv(local_vector_.data(), local_rows_, MPI_DOUBLE, recv_vector.data(), vec_counts.data(), vec_displs.data(),
-              MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  ReceiveRowFromRemote(pivot_local_idx, k_owner);
 }
 
-void IlinAGaussianMethodMPI::BackSubstitution() {
+void IlinAGaussianMethodMPI::SwapRowsLocally(int k_local_idx, int pivot_local_idx) {
+  std::swap_ranges(&local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))],
+                   &local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))] + band_,
+                   &local_matrix_[(static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_))]);
+  std::swap(local_vector_[static_cast<size_t>(k_local_idx)], local_vector_[static_cast<size_t>(pivot_local_idx)]);
+}
+
+void IlinAGaussianMethodMPI::ExchangeRowsWithRemote(int k_local_idx, int pivot_owner) {
+  std::vector<double> temp_row(band_);
+  double temp_b = 0.0;
+  MPI_Status status;
+
+  MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, pivot_owner, 0, MPI_COMM_WORLD, &status);
+  MPI_Recv(&temp_b, 1, MPI_DOUBLE, pivot_owner, 1, MPI_COMM_WORLD, &status);
+
+  std::copy(temp_row.begin(), temp_row.end(),
+            &local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))]);
+  local_vector_[static_cast<size_t>(k_local_idx)] = temp_b;
+
+  MPI_Send(&local_matrix_[(static_cast<size_t>(k_local_idx) * static_cast<size_t>(band_))], band_, MPI_DOUBLE,
+           pivot_owner, 2, MPI_COMM_WORLD);
+  MPI_Send(&local_vector_[static_cast<size_t>(k_local_idx)], 1, MPI_DOUBLE, pivot_owner, 3, MPI_COMM_WORLD);
+}
+
+void IlinAGaussianMethodMPI::ReceiveRowFromRemote(int pivot_local_idx, int k_owner) {
+  MPI_Send(&local_matrix_[(static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_))], band_, MPI_DOUBLE,
+           k_owner, 0, MPI_COMM_WORLD);
+  MPI_Send(&local_vector_[static_cast<size_t>(pivot_local_idx)], 1, MPI_DOUBLE, k_owner, 1, MPI_COMM_WORLD);
+
+  std::vector<double> temp_row(band_);
+  double temp_b = 0.0;
+  MPI_Status status;
+
+  MPI_Recv(temp_row.data(), band_, MPI_DOUBLE, k_owner, 2, MPI_COMM_WORLD, &status);
+  MPI_Recv(&temp_b, 1, MPI_DOUBLE, k_owner, 3, MPI_COMM_WORLD, &status);
+
+  std::copy(temp_row.begin(), temp_row.end(),
+            &local_matrix_[(static_cast<size_t>(pivot_local_idx) * static_cast<size_t>(band_))]);
+  local_vector_[static_cast<size_t>(pivot_local_idx)] = temp_b;
+}
+
+void IlinAGaussianMethodMPI::EliminateRow(int i, int k, const std::vector<double> &pivot_row, double pivot_b) {
   const double eps = 1e-12;
+  int global_row = row_start_ + i;
 
+  if (global_row <= k) {
+    return;
+  }
+
+  int factor_idx = band_ - 1 - (global_row - k);
+  if (factor_idx < 0 || factor_idx >= band_) {
+    return;
+  }
+
+  double pivot = pivot_row[static_cast<size_t>(band_ - 1)];
+  double factor = local_matrix_[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + factor_idx] / pivot;
+
+  if (std::fabs(factor) <= eps) {
+    return;
+  }
+
+  UpdateRowValues(i, k, factor, pivot_row);
+  local_vector_[static_cast<size_t>(i)] -= factor * pivot_b;
+}
+
+void IlinAGaussianMethodMPI::UpdateRowValues(int i, int k, double factor, const std::vector<double> &pivot_row) {
+  int global_row = row_start_ + i;
+
+  for (int j = 0; j < band_; ++j) {
+    int src_idx = j - (global_row - k);
+    if (src_idx < 0 || src_idx >= band_) {
+      continue;
+    }
+
+    local_matrix_[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + j] -=
+        factor * pivot_row[static_cast<size_t>(src_idx)];
+  }
+}
+
+void IlinAGaussianMethodMPI::ProcessBackwardSubstitution() {
   std::vector<double> recv_matrix;
   std::vector<double> recv_vector;
 
-  if (rank_ == 0) {
-    recv_matrix.resize(static_cast<size_t>(n_) * static_cast<size_t>(band_));
-    recv_vector.resize(static_cast<size_t>(n_));
+  GatherAllData(recv_matrix, recv_vector);
+
+  if (rank_ != 0) {
+    MPI_Bcast(solution_.data(), n_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    return;
   }
 
-  std::vector<int> recv_counts(static_cast<size_t>(size_));
-  std::vector<int> displs(static_cast<size_t>(size_));
-  std::vector<int> vec_counts(static_cast<size_t>(size_));
-  std::vector<int> vec_displs(static_cast<size_t>(size_));
+  std::vector<double> full_matrix(static_cast<size_t>(n_) * static_cast<size_t>(band_));
+  std::vector<double> full_vector(static_cast<size_t>(n_));
 
-  for (int i = 0; i < size_; ++i) {
-    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
-    recv_counts[static_cast<size_t>(i)] = rows_for_i * band_;
-    vec_counts[static_cast<size_t>(i)] = rows_for_i;
-    displs[static_cast<size_t>(i)] =
-        (i == 0) ? 0 : displs[static_cast<size_t>(i - 1)] + recv_counts[static_cast<size_t>(i - 1)];
-    vec_displs[static_cast<size_t>(i)] =
-        (i == 0) ? 0 : vec_displs[static_cast<size_t>(i - 1)] + vec_counts[static_cast<size_t>(i - 1)];
-  }
-
-  MPI_Gatherv(local_matrix_.data(), local_rows_ * band_, MPI_DOUBLE, recv_matrix.data(), recv_counts.data(),
-              displs.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Gatherv(local_vector_.data(), local_rows_, MPI_DOUBLE, recv_vector.data(), vec_counts.data(), vec_displs.data(),
-              MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  if (rank_ == 0) {
-    std::vector<double> full_matrix(static_cast<size_t>(n_) * static_cast<size_t>(band_));
-    std::vector<double> full_vector(static_cast<size_t>(n_));
-
-    for (int i = 0; i < size_; ++i) {
-      int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
-      int start_row = vec_displs[static_cast<size_t>(i)];
-
-      for (int j = 0; j < rows_for_i; ++j) {
-        int global_row = start_row + j;
-        std::copy(&recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))],
-                  &recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))] + band_,
-                  &full_matrix[static_cast<size_t>(global_row) * static_cast<size_t>(band_)]);
-        full_vector[static_cast<size_t>(global_row)] =
-            recv_vector[static_cast<size_t>(vec_displs[static_cast<size_t>(i)] + j)];
-      }
-    }
-
-    for (int i = n_ - 1; i >= 0; --i) {
-      double sum = 0.0;
-
-      for (int j = i + 1; j < std::min(n_, i + band_); ++j) {
-        int idx = band_ - 1 + (j - i);
-        if (idx < band_) {
-          sum += full_matrix[static_cast<size_t>(i) * static_cast<size_t>(band_) + idx] *
-                 solution_[static_cast<size_t>(j)];
-        }
-      }
-
-      int diag_idx = band_ - 1;
-      double diag = full_matrix[static_cast<size_t>(i) * static_cast<size_t>(band_) + diag_idx];
-
-      if (std::fabs(diag) > eps) {
-        solution_[static_cast<size_t>(i)] = (full_vector[static_cast<size_t>(i)] - sum) / diag;
-      } else {
-        solution_[static_cast<size_t>(i)] = 0.0;
-      }
-    }
-
-    for (int i = 0; i < n_; ++i) {
-      if (!std::isfinite(solution_[static_cast<size_t>(i)])) {
-        solution_[static_cast<size_t>(i)] = 0.0;
-      }
-    }
-  }
+  ReconstructFullMatrix(recv_matrix, recv_vector, full_matrix, full_vector);
+  SolveBackwardSubstitution(full_matrix, full_vector);
 
   MPI_Bcast(solution_.data(), n_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+}
+
+void IlinAGaussianMethodMPI::GatherAllData(std::vector<double> &recv_matrix, std::vector<double> &recv_vector) {
+  if (rank_ == 0) {
+    recv_matrix.resize(static_cast<size_t>(n_) * static_cast<size_t>(band_));
+    recv_vector.resize(static_cast<size_t>(n_));
+  }
+
+  std::vector<int> recv_counts(static_cast<size_t>(size_));
+  std::vector<int> displs(static_cast<size_t>(size_));
+  std::vector<int> vec_counts(static_cast<size_t>(size_));
+  std::vector<int> vec_displs(static_cast<size_t>(size_));
+
+  for (int i = 0; i < size_; ++i) {
+    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+    recv_counts[static_cast<size_t>(i)] = rows_for_i * band_;
+    vec_counts[static_cast<size_t>(i)] = rows_for_i;
+
+    if (i == 0) {
+      displs[0] = 0;
+      vec_displs[0] = 0;
+    } else {
+      displs[static_cast<size_t>(i)] = displs[static_cast<size_t>(i - 1)] + recv_counts[static_cast<size_t>(i - 1)];
+      vec_displs[static_cast<size_t>(i)] =
+          vec_displs[static_cast<size_t>(i - 1)] + vec_counts[static_cast<size_t>(i - 1)];
+    }
+  }
+
+  MPI_Gatherv(local_matrix_.data(), local_rows_ * band_, MPI_DOUBLE, recv_matrix.data(), recv_counts.data(),
+              displs.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gatherv(local_vector_.data(), local_rows_, MPI_DOUBLE, recv_vector.data(), vec_counts.data(), vec_displs.data(),
+              MPI_DOUBLE, 0, MPI_COMM_WORLD);
+}
+
+void IlinAGaussianMethodMPI::ReconstructFullMatrix(const std::vector<double> &recv_matrix,
+                                                   const std::vector<double> &recv_vector,
+                                                   std::vector<double> &full_matrix, std::vector<double> &full_vector) {
+  std::vector<int> displs(static_cast<size_t>(size_));
+  std::vector<int> vec_displs(static_cast<size_t>(size_));
+
+  for (int i = 0; i < size_; ++i) {
+    if (i == 0) {
+      displs[0] = 0;
+      vec_displs[0] = 0;
+    } else {
+      int prev_rows = (i - 1 < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+      displs[static_cast<size_t>(i)] = displs[static_cast<size_t>(i - 1)] + (prev_rows * band_);
+      vec_displs[static_cast<size_t>(i)] = vec_displs[static_cast<size_t>(i - 1)] + prev_rows;
+    }
+  }
+
+  for (int i = 0; i < size_; ++i) {
+    int rows_for_i = (i < remainder_) ? (rows_per_proc_ + 1) : rows_per_proc_;
+    int start_row = vec_displs[static_cast<size_t>(i)];
+
+    for (int j = 0; j < rows_for_i; ++j) {
+      int global_row = start_row + j;
+      std::copy(&recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))],
+                &recv_matrix[static_cast<size_t>(displs[static_cast<size_t>(i)] + (j * band_))] + band_,
+                &full_matrix[(static_cast<size_t>(global_row) * static_cast<size_t>(band_))]);
+      full_vector[static_cast<size_t>(global_row)] =
+          recv_vector[static_cast<size_t>(vec_displs[static_cast<size_t>(i)] + j)];
+    }
+  }
+}
+
+void IlinAGaussianMethodMPI::SolveBackwardSubstitution(const std::vector<double> &full_matrix,
+                                                       const std::vector<double> &full_vector) {
+  const double eps = 1e-12;
+
+  for (int i = n_ - 1; i >= 0; --i) {
+    double sum = 0.0;
+
+    for (int j = i + 1; j < std::min(n_, i + band_); ++j) {
+      int idx = band_ - 1 + (j - i);
+      if (idx >= band_) {
+        continue;
+      }
+
+      sum +=
+          full_matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + idx] * solution_[static_cast<size_t>(j)];
+    }
+
+    int diag_idx = band_ - 1;
+    double diag = full_matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + diag_idx];
+
+    if (std::fabs(diag) > eps) {
+      solution_[static_cast<size_t>(i)] = (full_vector[static_cast<size_t>(i)] - sum) / diag;
+    } else {
+      solution_[static_cast<size_t>(i)] = 0.0;
+    }
+  }
+
+  for (int i = 0; i < n_; ++i) {
+    if (!std::isfinite(solution_[static_cast<size_t>(i)])) {
+      solution_[static_cast<size_t>(i)] = 0.0;
+    }
+  }
 }
 
 bool IlinAGaussianMethodMPI::PostProcessingImpl() {
@@ -427,10 +460,12 @@ bool IlinAGaussianMethodMPI::PostProcessingImpl() {
     double sum = 0.0;
     for (int j = 0; j < n_; ++j) {
       int band_idx = (j - i + band_ - 1);
-      if (band_idx >= 0 && band_idx < band_) {
-        double matrix_elem = data_.matrix[static_cast<size_t>(i) * static_cast<size_t>(band_) + band_idx];
-        sum += matrix_elem * solution_[static_cast<size_t>(j)];
+      if (band_idx < 0 || band_idx >= band_) {
+        continue;
       }
+
+      double matrix_elem = data_.matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + band_idx];
+      sum += matrix_elem * solution_[static_cast<size_t>(j)];
     }
 
     double vector_elem = data_.vector[static_cast<size_t>(i)];

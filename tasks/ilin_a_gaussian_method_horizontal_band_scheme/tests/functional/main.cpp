@@ -82,14 +82,14 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
           int band_idx = (i - j + band_width - 1);
           if (band_idx >= 0 && band_idx < band_width) {
             double val = dist(gen) * 0.1;
-            matrix[static_cast<size_t>(i) * static_cast<size_t>(band_width) + band_idx] = val;
+            matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + band_idx] = val;
             diag_sum += std::fabs(val);
           }
         }
       }
 
       int diag_band_idx = band_width - 1;
-      matrix[static_cast<size_t>(i) * static_cast<size_t>(band_width) + diag_band_idx] = diag_sum + dist(gen) + 10.0;
+      matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + diag_band_idx] = diag_sum + dist(gen) + 10.0;
     }
 
     for (int i = 0; i < size; ++i) {
@@ -98,7 +98,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
         if (j <= i) {
           int band_idx = (i - j + band_width - 1);
           if (band_idx >= 0 && band_idx < band_width) {
-            sum += matrix[static_cast<size_t>(i) * static_cast<size_t>(band_width) + band_idx] *
+            sum += matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + band_idx] *
                    expected_solution_[static_cast<size_t>(j)];
           }
         }

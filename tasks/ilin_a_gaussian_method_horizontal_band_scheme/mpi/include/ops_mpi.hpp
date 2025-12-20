@@ -23,12 +23,29 @@ class IlinAGaussianMethodMPI : public BaseTask {
   void InitializeMPI();
   void BroadcastInputData();
   void ScatterLocalData();
-  void FindGlobalPivot(int k, int &global_max_row, double &global_max_val, std::vector<double> &pivot_row,
-                       double &pivot_b, int &pivot_owner) const;
-  void SwapRowsIfNeeded(int k, int global_max_row, int pivot_owner);
-  void EliminateRows(int k, const std::vector<double> &pivot_row, double pivot_b);
-  void GatherResults();
-  void BackSubstitution();
+
+  void ProcessForwardElimination();
+  void ProcessBackwardSubstitution();
+
+  double FindLocalPivotValue(int k, int &local_max_row) const;
+  void BroadcastPivotData(int pivot_owner, std::vector<double> &pivot_row, double &pivot_b, int global_max_row) const;
+  int CalculateRowOwner(int row) const;
+  int CalculatePivotOwner(int global_max_row) const;
+  int FindLocalRowIndex(int global_row) const;
+
+  void HandleRowSwapLocal(int k_local_idx, int pivot_owner, int global_max_row);
+  void HandleRowSwapRemote(int k_owner, int global_max_row);
+  void SwapRowsLocally(int k_local_idx, int pivot_local_idx);
+  void ExchangeRowsWithRemote(int k_local_idx, int pivot_owner);
+  void ReceiveRowFromRemote(int pivot_local_idx, int k_owner);
+
+  void EliminateRow(int i, int k, const std::vector<double> &pivot_row, double pivot_b);
+  void UpdateRowValues(int i, int k, double factor, const std::vector<double> &pivot_row);
+
+  void GatherAllData(std::vector<double> &recv_matrix, std::vector<double> &recv_vector);
+  void ReconstructFullMatrix(const std::vector<double> &recv_matrix, const std::vector<double> &recv_vector,
+                             std::vector<double> &full_matrix, std::vector<double> &full_vector);
+  void SolveBackwardSubstitution(const std::vector<double> &full_matrix, const std::vector<double> &full_vector);
 
   MatrixData data_;
   std::vector<double> solution_;
