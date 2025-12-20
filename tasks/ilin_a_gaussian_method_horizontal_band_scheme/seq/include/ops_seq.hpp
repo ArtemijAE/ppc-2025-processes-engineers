@@ -20,7 +20,7 @@ class IlinAGaussianMethodSEQ : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  void ForwardElimination(int n, int m, std::vector<double> &matrix, std::vector<double> &b);
+  static void ForwardElimination(int n, int m, std::vector<double> &matrix, std::vector<double> &b);
   [[nodiscard]] static int FindPivotRow(int k, int n, int m, const std::vector<double> &matrix);
   static void SwapRows(int row1, int row2, int m, std::vector<double> &matrix, std::vector<double> &b);
   static void EliminateRow(int i, int k, int m, std::vector<double> &matrix, std::vector<double> &b, double pivot);
