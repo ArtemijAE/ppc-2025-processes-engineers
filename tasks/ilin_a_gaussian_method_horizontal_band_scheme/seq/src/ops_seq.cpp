@@ -87,7 +87,7 @@ void IlinAGaussianMethodSEQ::ForwardElimination(int n, int m, std::vector<double
   }
 }
 
-int IlinAGaussianMethodSEQ::FindPivotRow(int k, int n, int m, const std::vector<double> &matrix) const {
+int IlinAGaussianMethodSEQ::FindPivotRow(int k, int n, int m, const std::vector<double> &matrix) {
   int max_row = k;
   double max_val = 0.0;
 

@@ -409,12 +409,13 @@ void IlinAGaussianMethodMPI::ReconstructFullMatrix(const std::vector<double> &re
 
     for (int j = 0; j < rows_for_i; ++j) {
       int global_row = start_row + j;
-      const std::ptrdiff_t offset = static_cast<std::ptrdiff_t>(displs[static_cast<size_t>(i)]) + (j * band_);
+      const std::ptrdiff_t offset = static_cast<std::ptrdiff_t>(displs[static_cast<size_t>(i)]) +
+                                    static_cast<std::ptrdiff_t>(j) * static_cast<std::ptrdiff_t>(band_);
       std::copy(&recv_matrix[static_cast<size_t>(offset)],
                 &recv_matrix[static_cast<size_t>(offset) + static_cast<size_t>(band_)],
                 &full_matrix[(static_cast<size_t>(global_row) * static_cast<size_t>(band_))]);
       full_vector[static_cast<size_t>(global_row)] =
-          recv_vector[static_cast<size_t>(vec_displs[static_cast<size_t>(i)] + j)];
+          recv_vector[static_cast<size_t>(vec_displs[static_cast<size_t>(i)] + static_cast<size_t>(j))];
     }
   }
 }
