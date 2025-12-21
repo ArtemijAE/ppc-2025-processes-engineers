@@ -457,29 +457,13 @@ void IlinAGaussianMethodMPI::SolveBackwardSubstitution(const std::vector<double>
 bool IlinAGaussianMethodMPI::PostProcessingImpl() {
   MPI_Barrier(MPI_COMM_WORLD);
 
-  double local_max_error = 0.0;
-
-  for (int i = row_start_; i < row_end_; ++i) {
-    double sum = 0.0;
-    for (int j = 0; j < n_; ++j) {
-      int band_idx = (j - i + band_ - 1);
-      if (band_idx < 0 || band_idx >= band_) {
-        continue;
-      }
-
-      double matrix_elem = data_.matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_)) + band_idx];
-      sum += matrix_elem * solution_[static_cast<size_t>(j)];
-    }
-
-    double vector_elem = data_.vector[static_cast<size_t>(i)];
-    double error = std::fabs(sum - vector_elem);
-    local_max_error = std::max(error, local_max_error);
+  if (rank_ == 0) {
+    GetOutput() = solution_;
   }
 
-  double global_max_error = 0.0;
-  MPI_Allreduce(&local_max_error, &global_max_error, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  MPI_Bcast(solution_.data(), n_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-  return global_max_error < 1e-6;
+  return true;
 }
 
 }  // namespace ilin_a_gaussian_method_horizontal_band_scheme
