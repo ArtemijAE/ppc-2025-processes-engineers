@@ -38,7 +38,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     } else if (test_name == "large") {
       band_width = std::max(3, matrix_size / 2);
     } else if (test_name == "singular") {
-      band_width = std::max(1, matrix_size / 4);
+      band_width = std::max(2, matrix_size / 6);
     }
 
     band_width = std::min(band_width, matrix_size);
