@@ -41,19 +41,16 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       band_width = std::max(1, matrix_size / 4);
     }
 
-    if (band_width > matrix_size) {
-      band_width = matrix_size;
-    }
-    if (band_width < 1) {
-      band_width = 1;
-    }
+    band_width = std::min(band_width, matrix_size);
+    band_width = std::max(band_width, 1);
 
     expected_output_.resize(static_cast<size_t>(matrix_size));
     for (int i = 0; i < matrix_size; ++i) {
       expected_output_[static_cast<size_t>(i)] = static_cast<double>(i + 1);
     }
 
-    std::vector<double> matrix(static_cast<size_t>(matrix_size) * static_cast<size_t>(band_width), 0.0);
+    const auto mat_size = static_cast<size_t>(matrix_size) * static_cast<size_t>(band_width);
+    std::vector<double> matrix(mat_size, 0.0);
     std::vector<double> vector(static_cast<size_t>(matrix_size), 0.0);
 
     if (test_name == "singular") {
@@ -68,12 +65,10 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     } else {
       for (int i = 0; i < matrix_size; ++i) {
         double diag_sum = 0.0;
-
+        
         for (int j = 0; j < matrix_size; ++j) {
-          if (i == j) {
-            continue;
-          }
-
+          if (i == j) continue;
+          
           if (j <= i) {
             int band_idx = (i - j + band_width - 1);
             if (band_idx >= 0 && band_idx < band_width) {
@@ -83,10 +78,9 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
             }
           }
         }
-
+        
         int diag_band_idx = band_width - 1;
-        matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + diag_band_idx] =
-            diag_sum + matrix_size + 10.0;
+        matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + diag_band_idx] = diag_sum + matrix_size + 10.0;
       }
     }
 
@@ -96,8 +90,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
         if (j <= i) {
           int band_idx = (i - j + band_width - 1);
           if (band_idx >= 0 && band_idx < band_width) {
-            b += matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + band_idx] *
-                 expected_output_[static_cast<size_t>(j)];
+            b += matrix[(static_cast<size_t>(i) * static_cast<size_t>(band_width)) + band_idx] * expected_output_[static_cast<size_t>(j)];
           }
         }
       }
@@ -136,7 +129,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
 class IlinAValidationTests : public ::testing::Test {
  protected:
-  void TestValidation(const InType &input, bool expected_valid) {
+  static void TestValidation(const InType &input, bool expected_valid) {
     IlinAGaussianMethodSEQ task(input);
     bool result = task.Validation();
     EXPECT_EQ(result, expected_valid);
@@ -147,20 +140,21 @@ TEST_F(IlinAValidationTests, ValidInput) {
   InType input;
   int size = 5;
   int band_width = 3;
-
+  
   input.push_back(static_cast<double>(size));
   input.push_back(static_cast<double>(band_width));
-
-  std::vector<double> matrix(size * band_width, 0.0);
-  std::vector<double> vector(size, 1.0);
-
+  
+  const auto mat_size = static_cast<size_t>(size) * static_cast<size_t>(band_width);
+  std::vector<double> matrix(mat_size, 0.0);
+  std::vector<double> vector(static_cast<size_t>(size), 1.0);
+  
   for (int i = 0; i < size; ++i) {
     matrix[(i * band_width) + (band_width - 1)] = (i + 1) * 2.0;
   }
-
+  
   input.insert(input.end(), matrix.begin(), matrix.end());
   input.insert(input.end(), vector.begin(), vector.end());
-
+  
   TestValidation(input, true);
 }
 
@@ -188,21 +182,22 @@ TEST_F(IlinAValidationTests, BandwidthOneTest) {
   InType input;
   int size = 4;
   int band_width = 1;
-
+  
   input.push_back(static_cast<double>(size));
   input.push_back(static_cast<double>(band_width));
-
-  std::vector<double> matrix(size * band_width);
-  std::vector<double> vector(size);
-
+  
+  const auto mat_size = static_cast<size_t>(size) * static_cast<size_t>(band_width);
+  std::vector<double> matrix(mat_size);
+  std::vector<double> vector(static_cast<size_t>(size));
+  
   for (int i = 0; i < size; ++i) {
-    matrix[i] = (i + 1) * 2.0;
-    vector[i] = (i + 1) * 4.0;
+    matrix[static_cast<size_t>(i)] = (i + 1) * 2.0;
+    vector[static_cast<size_t>(i)] = (i + 1) * 4.0;
   }
-
+  
   input.insert(input.end(), matrix.begin(), matrix.end());
   input.insert(input.end(), vector.begin(), vector.end());
-
+  
   TestValidation(input, true);
 }
 
@@ -210,16 +205,18 @@ TEST_F(IlinAValidationTests, FullBandwidthTest) {
   InType input;
   int size = 3;
   int band_width = 3;
-
+  
   input.push_back(static_cast<double>(size));
   input.push_back(static_cast<double>(band_width));
-
-  std::vector<double> matrix = {1.0, 0.0, 0.0, 2.0, 3.0, 0.0, 0.0, 4.0, 5.0};
+  
+  std::vector<double> matrix = {1.0, 0.0, 0.0,
+                                2.0, 3.0, 0.0,
+                                0.0, 4.0, 5.0};
   std::vector<double> vector = {1.0, 5.0, 9.0};
-
+  
   input.insert(input.end(), matrix.begin(), matrix.end());
   input.insert(input.end(), vector.begin(), vector.end());
-
+  
   TestValidation(input, true);
 }
 
@@ -230,14 +227,22 @@ TEST_P(IlinARunFuncTestsProcesses, GaussianMethod) {
 }
 
 const std::array<TestType, 9> kTestParam = {
-    std::make_tuple(3, "tiny"),    std::make_tuple(5, "tiny"),     std::make_tuple(7, "small"),
-    std::make_tuple(10, "small"),  std::make_tuple(20, "medium"),  std::make_tuple(50, "medium"),
-    std::make_tuple(100, "large"), std::make_tuple(8, "singular"), std::make_tuple(15, "singular")};
+    std::make_tuple(3, "tiny"),
+    std::make_tuple(5, "tiny"),
+    std::make_tuple(7, "small"),
+    std::make_tuple(10, "small"),
+    std::make_tuple(20, "medium"),
+    std::make_tuple(50, "medium"),
+    std::make_tuple(100, "large"),
+    std::make_tuple(8, "singular"),
+    std::make_tuple(15, "singular")
+};
 
-const auto kTestTasksList = std::tuple_cat(ppc::util::AddFuncTask<IlinAGaussianMethodMPI, InType>(
-                                               kTestParam, PPC_SETTINGS_ilin_a_gaussian_method_horizontal_band_scheme),
-                                           ppc::util::AddFuncTask<IlinAGaussianMethodSEQ, InType>(
-                                               kTestParam, PPC_SETTINGS_ilin_a_gaussian_method_horizontal_band_scheme));
+const auto kTestTasksList = std::tuple_cat(
+    ppc::util::AddFuncTask<IlinAGaussianMethodMPI, InType>(
+        kTestParam, PPC_SETTINGS_ilin_a_gaussian_method_horizontal_band_scheme),
+    ppc::util::AddFuncTask<IlinAGaussianMethodSEQ, InType>(
+        kTestParam, PPC_SETTINGS_ilin_a_gaussian_method_horizontal_band_scheme));
 
 const auto kGtestValues = ppc::util::ExpandToValues(kTestTasksList);
 
