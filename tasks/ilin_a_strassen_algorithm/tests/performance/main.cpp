@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <random>
 #include <chrono>
+#include <random>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
 #include "ilin_a_strassen_algorithm/mpi/include/ops_mpi.hpp"
@@ -10,8 +10,7 @@
 
 namespace ilin_a_strassen_algorithm {
 
-class IlinARunPerfTestProcesses
-    : public ppc::util::BaseRunPerfTests<InType, OutType> {
+class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
   const int kMatrixSize_ = 128;
   InType input_data_{};
@@ -25,8 +24,8 @@ class IlinARunPerfTestProcesses
             output_data.C.size() == static_cast<size_t>(kMatrixSize_ * kMatrixSize_));
   }
 
-  InType GetTestInputData() final { 
-    return input_data_; 
+  InType GetTestInputData() final {
+    return input_data_;
   }
 
  private:
@@ -40,7 +39,7 @@ class IlinARunPerfTestProcesses
     input_data_.size = size;
 
     gen.seed(42);
-    
+
     for (int i = 0; i < size * size; ++i) {
       input_data_.A[i] = dist(gen);
       input_data_.B[i] = dist(gen);
@@ -48,19 +47,17 @@ class IlinARunPerfTestProcesses
   }
 };
 
-TEST_P(IlinARunPerfTestProcesses, RunPerfModes) { 
+TEST_P(IlinARunPerfTestProcesses, RunPerfModes) {
   ExecuteTest(GetParam());
 }
 
-const auto kAllPerfTasks = ppc::util::MakeAllPerfTasks<
-    InType, IlinAStrassenAlgorithmMPI, IlinAStrassenAlgorithmSEQ>(
+const auto kAllPerfTasks = ppc::util::MakeAllPerfTasks<InType, IlinAStrassenAlgorithmMPI, IlinAStrassenAlgorithmSEQ>(
     PPC_SETTINGS_ilin_a_strassen_algorithm);
 
 const auto kGtestValues = ppc::util::TupleToGTestValues(kAllPerfTasks);
 
 const auto kPerfTestName = IlinARunPerfTestProcesses::CustomPerfTestName;
 
-INSTANTIATE_TEST_SUITE_P(RunModeTests, IlinARunPerfTestProcesses, kGtestValues,
-                         kPerfTestName);
+INSTANTIATE_TEST_SUITE_P(RunModeTests, IlinARunPerfTestProcesses, kGtestValues, kPerfTestName);
 
 }  // namespace ilin_a_strassen_algorithm

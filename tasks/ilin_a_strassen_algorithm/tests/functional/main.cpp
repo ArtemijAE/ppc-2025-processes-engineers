@@ -16,18 +16,15 @@
 
 namespace ilin_a_strassen_algorithm {
 
-class IlinARunFuncTestsProcesses
-    : public ppc::util::BaseRunFuncTests<InType, OutType, TestType> {
+class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, OutType, TestType> {
  public:
   static std::string PrintTestParam(const TestType &test_param) {
-    return std::to_string(std::get<0>(test_param)) + "_" +
-           std::get<1>(test_param);
+    return std::to_string(std::get<0>(test_param)) + "_" + std::get<1>(test_param);
   }
 
  protected:
   void SetUp() override {
-    auto params = std::get<static_cast<std::size_t>(
-        ppc::util::GTestParamIndex::kTestParams)>(GetParam());
+    auto params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
     matrix_size_ = std::get<0>(params);
 
     std::random_device rd;
@@ -39,7 +36,7 @@ class IlinARunFuncTestsProcesses
     input_data_.size = matrix_size_;
 
     gen.seed(42 + matrix_size_);
-    
+
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
       input_data_.A[i] = dist(gen);
       input_data_.B[i] = dist(gen);
@@ -50,7 +47,7 @@ class IlinARunFuncTestsProcesses
     if (output_data.size != matrix_size_) {
       return false;
     }
-    
+
     if (output_data.C.size() != static_cast<size_t>(matrix_size_ * matrix_size_)) {
       return false;
     }
@@ -72,12 +69,12 @@ class IlinARunFuncTestsProcesses
         return false;
       }
     }
-    
+
     return true;
   }
 
-  InType GetTestInputData() final { 
-    return input_data_; 
+  InType GetTestInputData() final {
+    return input_data_;
   }
 
  private:
@@ -91,28 +88,19 @@ TEST_P(IlinARunFuncTestsProcesses, StrassenAlgorithm) {
   ExecuteTest(GetParam());
 }
 
-const std::array<TestType, 6> kTestParam = {
-    std::make_tuple(16, "16"),
-    std::make_tuple(32, "32"),
-    std::make_tuple(64, "64"),
-    std::make_tuple(65, "65"),
-    std::make_tuple(128, "128"),
-    std::make_tuple(127, "127")
-};
+const std::array<TestType, 6> kTestParam = {std::make_tuple(16, "16"),   std::make_tuple(32, "32"),
+                                            std::make_tuple(64, "64"),   std::make_tuple(65, "65"),
+                                            std::make_tuple(128, "128"), std::make_tuple(127, "127")};
 
 const auto kTestTasksList = std::tuple_cat(
-    ppc::util::AddFuncTask<IlinAStrassenAlgorithmMPI, InType>(
-        kTestParam, PPC_SETTINGS_ilin_a_strassen_algorithm),
-    ppc::util::AddFuncTask<IlinAStrassenAlgorithmSEQ, InType>(
-        kTestParam, PPC_SETTINGS_ilin_a_strassen_algorithm));
+    ppc::util::AddFuncTask<IlinAStrassenAlgorithmMPI, InType>(kTestParam, PPC_SETTINGS_ilin_a_strassen_algorithm),
+    ppc::util::AddFuncTask<IlinAStrassenAlgorithmSEQ, InType>(kTestParam, PPC_SETTINGS_ilin_a_strassen_algorithm));
 
 const auto kGtestValues = ppc::util::ExpandToValues(kTestTasksList);
 
-const auto kPerfTestName =
-    IlinARunFuncTestsProcesses::PrintFuncTestName<IlinARunFuncTestsProcesses>;
+const auto kPerfTestName = IlinARunFuncTestsProcesses::PrintFuncTestName<IlinARunFuncTestsProcesses>;
 
-INSTANTIATE_TEST_SUITE_P(StrassenTests, IlinARunFuncTestsProcesses,
-                         kGtestValues, kPerfTestName);
+INSTANTIATE_TEST_SUITE_P(StrassenTests, IlinARunFuncTestsProcesses, kGtestValues, kPerfTestName);
 
 }  // namespace
 
