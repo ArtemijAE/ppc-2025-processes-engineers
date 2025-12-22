@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <tuple>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
@@ -215,87 +216,112 @@ std::vector<double> IlinAStrassenAlgorithmMPI::strassenSequential(const std::vec
   return C;
 }
 
-std::vector<double> IlinAStrassenAlgorithmMPI::distributedNaiveMultiply(const std::vector<double> &A,
-                                                                        const std::vector<double> &B, int n) {
-  int rows_per_proc = n / world_size_;
-  int remainder = n % world_size_;
+std::tuple<int, int> IlinAStrassenAlgorithmMPI::calculateMatrixRange(int total_matrices) const {
+  int matrices_per_process = total_matrices / world_size_;
+  int extra_matrices = total_matrices % world_size_;
 
-  int local_rows = rows_per_proc + (world_rank_ < remainder ? 1 : 0);
-  int start_row = 0;
-
-  for (int i = 0; i < world_rank_; ++i) {
-    int rows_for_i = rows_per_proc + (i < remainder ? 1 : 0);
-    start_row += rows_for_i;
+  int matrices_to_compute = matrices_per_process;
+  if (world_rank_ < extra_matrices) {
+    matrices_to_compute++;
   }
 
-  std::vector<double> local_result;
-  if (local_rows > 0) {
-    local_result.resize(local_rows * n, 0.0);
+  int start_matrix = 0;
+  for (int i = 0; i < world_rank_; i++) {
+    int matrices_for_i = matrices_per_process + (i < extra_matrices ? 1 : 0);
+    start_matrix += matrices_for_i;
+  }
 
-    for (int i = 0; i < local_rows; ++i) {
-      int global_i = start_row + i;
-      for (int j = 0; j < n; ++j) {
-        double sum = 0.0;
-        for (int k = 0; k < n; ++k) {
-          sum += A[global_i * n + k] * B[k * n + j];
-        }
-        local_result[i * n + j] = sum;
+  int end_matrix = start_matrix + matrices_to_compute;
+  return std::make_tuple(start_matrix, end_matrix);
+}
+
+void IlinAStrassenAlgorithmMPI::computeSingleProduct(int product_idx, const std::vector<double> &A11,
+                                                     const std::vector<double> &A12, const std::vector<double> &A21,
+                                                     const std::vector<double> &A22, const std::vector<double> &B11,
+                                                     const std::vector<double> &B12, const std::vector<double> &B21,
+                                                     const std::vector<double> &B22, int half,
+                                                     std::vector<double> &result) {
+  std::vector<double> temp1(half * half), temp2(half * half);
+
+  switch (product_idx) {
+    case 0:
+      addMatrix(A11, A22, temp1, half);
+      addMatrix(B11, B22, temp2, half);
+      result = parallelStrassenRecursive(temp1, temp2, half);
+      break;
+    case 1:
+      addMatrix(A21, A22, temp1, half);
+      result = parallelStrassenRecursive(temp1, B11, half);
+      break;
+    case 2:
+      subtractMatrix(B12, B22, temp1, half);
+      result = parallelStrassenRecursive(A11, temp1, half);
+      break;
+    case 3:
+      subtractMatrix(B21, B11, temp1, half);
+      result = parallelStrassenRecursive(A22, temp1, half);
+      break;
+    case 4:
+      addMatrix(A11, A12, temp1, half);
+      result = parallelStrassenRecursive(temp1, B22, half);
+      break;
+    case 5:
+      subtractMatrix(A21, A11, temp1, half);
+      addMatrix(B11, B12, temp2, half);
+      result = parallelStrassenRecursive(temp1, temp2, half);
+      break;
+    case 6:
+      subtractMatrix(A12, A22, temp1, half);
+      addMatrix(B21, B22, temp2, half);
+      result = parallelStrassenRecursive(temp1, temp2, half);
+      break;
+  }
+}
+
+void IlinAStrassenAlgorithmMPI::gatherProductMatrix(const std::vector<double> &local_product,
+                                                    std::vector<double> &buffer) {
+  int matrix_size = static_cast<int>(local_product.size());
+  buffer.resize(matrix_size * world_size_);
+  MPI_Allgather(local_product.data(), matrix_size, MPI_DOUBLE, buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
+}
+
+void IlinAStrassenAlgorithmMPI::mergeProductFromBuffer(const std::vector<double> &buffer, int proc_count,
+                                                       int matrix_size, std::vector<double> &product) {
+  for (int proc = 0; proc < proc_count; proc++) {
+    int offset = proc * matrix_size;
+    bool has_data = false;
+
+    for (int i = 0; i < matrix_size; i++) {
+      if (buffer[offset + i] != 0.0) {
+        has_data = true;
+        break;
       }
     }
-  }
 
-  std::vector<double> final_result;
-
-  if (world_rank_ == 0) {
-    final_result.resize(n * n);
-  }
-
-  std::vector<int> recvcounts(world_size_);
-  std::vector<int> displs(world_size_);
-
-  if (world_rank_ == 0) {
-    int offset = 0;
-    for (int i = 0; i < world_size_; ++i) {
-      int rows_for_i = rows_per_proc + (i < remainder ? 1 : 0);
-      recvcounts[i] = rows_for_i * n;
-      displs[i] = offset;
-      offset += recvcounts[i];
+    if (has_data && product[0] == 0.0) {
+      std::copy(buffer.begin() + offset, buffer.begin() + offset + matrix_size, product.begin());
+      break;
     }
   }
+}
 
-  int send_count = static_cast<int>(local_result.size());
-  const double *send_data = local_result.empty() ? nullptr : local_result.data();
-  double *recv_data = world_rank_ == 0 ? final_result.data() : nullptr;
-  int *recvcounts_ptr = world_rank_ == 0 ? recvcounts.data() : nullptr;
-  int *displs_ptr = world_rank_ == 0 ? displs.data() : nullptr;
+void IlinAStrassenAlgorithmMPI::computeResultFromProducts(const std::vector<double> &P1, const std::vector<double> &P2,
+                                                          const std::vector<double> &P3, const std::vector<double> &P4,
+                                                          const std::vector<double> &P5, const std::vector<double> &P6,
+                                                          const std::vector<double> &P7, int half,
+                                                          std::vector<double> &C11, std::vector<double> &C12,
+                                                          std::vector<double> &C21, std::vector<double> &C22) {
+  addMatrix(P1, P4, C11, half);
+  subtractMatrix(C11, P5, C11, half);
+  addMatrix(C11, P7, C11, half);
 
-  MPI_Gatherv(send_data, send_count, MPI_DOUBLE, recv_data, recvcounts_ptr, displs_ptr, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  addMatrix(P3, P5, C12, half);
 
-  if (world_rank_ == 0) {
-    std::vector<double> reordered_result(n * n);
+  addMatrix(P2, P4, C21, half);
 
-    int offset = 0;
-    for (int proc = 0; proc < world_size_; ++proc) {
-      int rows_for_proc = rows_per_proc + (proc < remainder ? 1 : 0);
-      int proc_start_row = 0;
-
-      for (int i = 0; i < proc; ++i) {
-        proc_start_row += rows_per_proc + (i < remainder ? 1 : 0);
-      }
-
-      for (int i = 0; i < rows_for_proc; ++i) {
-        int global_row = proc_start_row + i;
-        for (int j = 0; j < n; ++j) {
-          reordered_result[global_row * n + j] = final_result[offset + i * n + j];
-        }
-      }
-      offset += rows_for_proc * n;
-    }
-
-    return reordered_result;
-  }
-
-  return std::vector<double>();
+  addMatrix(P1, P3, C22, half);
+  subtractMatrix(C22, P2, C22, half);
+  addMatrix(C22, P6, C22, half);
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::parallelStrassenRecursive(const std::vector<double> &A,
@@ -313,66 +339,36 @@ std::vector<double> IlinAStrassenAlgorithmMPI::parallelStrassenRecursive(const s
   splitMatrix(B, B11, B12, B21, B22, n);
 
   std::vector<double> P1, P2, P3, P4, P5, P6, P7;
-  std::vector<double> temp1(half * half), temp2(half * half);
 
-  std::vector<double> all_P1, all_P2, all_P3, all_P4, all_P5, all_P6, all_P7;
-
-  int matrices_per_process = 7 / world_size_;
-  int extra_matrices = 7 % world_size_;
-
-  int start_matrix = 0;
-  int end_matrix = 0;
-  int matrices_to_compute = matrices_per_process;
-
-  if (world_rank_ < extra_matrices) {
-    matrices_to_compute++;
-  }
-
-  for (int i = 0; i < world_rank_; i++) {
-    int matrices_for_i = matrices_per_process + (i < extra_matrices ? 1 : 0);
-    start_matrix += matrices_for_i;
-  }
-  end_matrix = start_matrix + matrices_to_compute;
+  auto [start_matrix, end_matrix] = calculateMatrixRange(7);
 
   for (int matrix_idx = start_matrix; matrix_idx < end_matrix; matrix_idx++) {
     switch (matrix_idx) {
       case 0:
-        addMatrix(A11, A22, temp1, half);
-        addMatrix(B11, B22, temp2, half);
-        P1 = parallelStrassenRecursive(temp1, temp2, half);
+        computeSingleProduct(0, A11, A12, A21, A22, B11, B12, B21, B22, half, P1);
         break;
       case 1:
-        addMatrix(A21, A22, temp1, half);
-        P2 = parallelStrassenRecursive(temp1, B11, half);
+        computeSingleProduct(1, A11, A12, A21, A22, B11, B12, B21, B22, half, P2);
         break;
       case 2:
-        subtractMatrix(B12, B22, temp1, half);
-        P3 = parallelStrassenRecursive(A11, temp1, half);
+        computeSingleProduct(2, A11, A12, A21, A22, B11, B12, B21, B22, half, P3);
         break;
       case 3:
-        subtractMatrix(B21, B11, temp1, half);
-        P4 = parallelStrassenRecursive(A22, temp1, half);
+        computeSingleProduct(3, A11, A12, A21, A22, B11, B12, B21, B22, half, P4);
         break;
       case 4:
-        addMatrix(A11, A12, temp1, half);
-        P5 = parallelStrassenRecursive(temp1, B22, half);
+        computeSingleProduct(4, A11, A12, A21, A22, B11, B12, B21, B22, half, P5);
         break;
       case 5:
-        subtractMatrix(A21, A11, temp1, half);
-        addMatrix(B11, B12, temp2, half);
-        P6 = parallelStrassenRecursive(temp1, temp2, half);
+        computeSingleProduct(5, A11, A12, A21, A22, B11, B12, B21, B22, half, P6);
         break;
       case 6:
-        subtractMatrix(A12, A22, temp1, half);
-        addMatrix(B21, B22, temp2, half);
-        P7 = parallelStrassenRecursive(temp1, temp2, half);
+        computeSingleProduct(6, A11, A12, A21, A22, B11, B12, B21, B22, half, P7);
         break;
     }
   }
 
   int matrix_size = half * half;
-
-  std::vector<double> P1_buffer, P2_buffer, P3_buffer, P4_buffer, P5_buffer, P6_buffer, P7_buffer;
 
   if (P1.empty()) {
     P1.resize(matrix_size, 0.0);
@@ -396,126 +392,157 @@ std::vector<double> IlinAStrassenAlgorithmMPI::parallelStrassenRecursive(const s
     P7.resize(matrix_size, 0.0);
   }
 
-  P1_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P1.data(), matrix_size, MPI_DOUBLE, P1_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
+  std::vector<double> P1_buffer, P2_buffer, P3_buffer, P4_buffer, P5_buffer, P6_buffer, P7_buffer;
 
-  P2_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P2.data(), matrix_size, MPI_DOUBLE, P2_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
+  gatherProductMatrix(P1, P1_buffer);
+  gatherProductMatrix(P2, P2_buffer);
+  gatherProductMatrix(P3, P3_buffer);
+  gatherProductMatrix(P4, P4_buffer);
+  gatherProductMatrix(P5, P5_buffer);
+  gatherProductMatrix(P6, P6_buffer);
+  gatherProductMatrix(P7, P7_buffer);
 
-  P3_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P3.data(), matrix_size, MPI_DOUBLE, P3_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
-  P4_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P4.data(), matrix_size, MPI_DOUBLE, P4_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
-  P5_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P5.data(), matrix_size, MPI_DOUBLE, P5_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
-  P6_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P6.data(), matrix_size, MPI_DOUBLE, P6_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
-  P7_buffer.resize(matrix_size * world_size_);
-  MPI_Allgather(P7.data(), matrix_size, MPI_DOUBLE, P7_buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
-
-  for (int proc = 0; proc < world_size_; proc++) {
-    int offset = proc * matrix_size;
-
-    bool P1_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P1_buffer[offset + i] != 0.0) {
-        P1_has_data = true;
-        break;
-      }
-    }
-    if (P1_has_data && P1[0] == 0.0) {
-      std::copy(P1_buffer.begin() + offset, P1_buffer.begin() + offset + matrix_size, P1.begin());
-    }
-
-    bool P2_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P2_buffer[offset + i] != 0.0) {
-        P2_has_data = true;
-        break;
-      }
-    }
-    if (P2_has_data && P2[0] == 0.0) {
-      std::copy(P2_buffer.begin() + offset, P2_buffer.begin() + offset + matrix_size, P2.begin());
-    }
-
-    bool P3_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P3_buffer[offset + i] != 0.0) {
-        P3_has_data = true;
-        break;
-      }
-    }
-    if (P3_has_data && P3[0] == 0.0) {
-      std::copy(P3_buffer.begin() + offset, P3_buffer.begin() + offset + matrix_size, P3.begin());
-    }
-
-    bool P4_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P4_buffer[offset + i] != 0.0) {
-        P4_has_data = true;
-        break;
-      }
-    }
-    if (P4_has_data && P4[0] == 0.0) {
-      std::copy(P4_buffer.begin() + offset, P4_buffer.begin() + offset + matrix_size, P4.begin());
-    }
-
-    bool P5_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P5_buffer[offset + i] != 0.0) {
-        P5_has_data = true;
-        break;
-      }
-    }
-    if (P5_has_data && P5[0] == 0.0) {
-      std::copy(P5_buffer.begin() + offset, P5_buffer.begin() + offset + matrix_size, P5.begin());
-    }
-
-    bool P6_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P6_buffer[offset + i] != 0.0) {
-        P6_has_data = true;
-        break;
-      }
-    }
-    if (P6_has_data && P6[0] == 0.0) {
-      std::copy(P6_buffer.begin() + offset, P6_buffer.begin() + offset + matrix_size, P6.begin());
-    }
-
-    bool P7_has_data = false;
-    for (int i = 0; i < matrix_size; i++) {
-      if (P7_buffer[offset + i] != 0.0) {
-        P7_has_data = true;
-        break;
-      }
-    }
-    if (P7_has_data && P7[0] == 0.0) {
-      std::copy(P7_buffer.begin() + offset, P7_buffer.begin() + offset + matrix_size, P7.begin());
-    }
-  }
+  mergeProductFromBuffer(P1_buffer, world_size_, matrix_size, P1);
+  mergeProductFromBuffer(P2_buffer, world_size_, matrix_size, P2);
+  mergeProductFromBuffer(P3_buffer, world_size_, matrix_size, P3);
+  mergeProductFromBuffer(P4_buffer, world_size_, matrix_size, P4);
+  mergeProductFromBuffer(P5_buffer, world_size_, matrix_size, P5);
+  mergeProductFromBuffer(P6_buffer, world_size_, matrix_size, P6);
+  mergeProductFromBuffer(P7_buffer, world_size_, matrix_size, P7);
 
   std::vector<double> C11(half * half), C12(half * half), C21(half * half), C22(half * half);
-
-  addMatrix(P1, P4, C11, half);
-  subtractMatrix(C11, P5, C11, half);
-  addMatrix(C11, P7, C11, half);
-
-  addMatrix(P3, P5, C12, half);
-
-  addMatrix(P2, P4, C21, half);
-
-  addMatrix(P1, P3, C22, half);
-  subtractMatrix(C22, P2, C22, half);
-  addMatrix(C22, P6, C22, half);
+  computeResultFromProducts(P1, P2, P3, P4, P5, P6, P7, half, C11, C12, C21, C22);
 
   std::vector<double> C(n * n);
   joinMatrix(C, C11, C12, C21, C22, n);
 
   return C;
+}
+
+std::tuple<int, int, int> IlinAStrassenAlgorithmMPI::calculateRowDistribution(int n) const {
+  int rows_per_proc = n / world_size_;
+  int remainder = n % world_size_;
+  int local_rows = rows_per_proc + (world_rank_ < remainder ? 1 : 0);
+  return std::make_tuple(rows_per_proc, remainder, local_rows);
+}
+
+std::vector<double> IlinAStrassenAlgorithmMPI::computeLocalRows(const std::vector<double> &A,
+                                                                const std::vector<double> &B, int n, int start_row,
+                                                                int local_rows) {
+  std::vector<double> local_result(local_rows * n, 0.0);
+
+  for (int i = 0; i < local_rows; ++i) {
+    int global_i = start_row + i;
+    for (int j = 0; j < n; ++j) {
+      double sum = 0.0;
+      for (int k = 0; k < n; ++k) {
+        sum += A[global_i * n + k] * B[k * n + j];
+      }
+      local_result[i * n + j] = sum;
+    }
+  }
+
+  return local_result;
+}
+
+void IlinAStrassenAlgorithmMPI::setupGatherParameters(int n, std::vector<int> &recvcounts,
+                                                      std::vector<int> &displs) const {
+  if (world_rank_ != 0) {
+    return;
+  }
+
+  auto [rows_per_proc, remainder, _] = calculateRowDistribution(n);
+  recvcounts.resize(world_size_);
+  displs.resize(world_size_);
+
+  int offset = 0;
+  for (int i = 0; i < world_size_; ++i) {
+    int rows_for_i = rows_per_proc + (i < remainder ? 1 : 0);
+    recvcounts[i] = rows_for_i * n;
+    displs[i] = offset;
+    offset += recvcounts[i];
+  }
+}
+
+std::vector<double> IlinAStrassenAlgorithmMPI::gatherLocalResults(const std::vector<double> &local_result, int n,
+                                                                  const std::vector<int> &recvcounts,
+                                                                  const std::vector<int> &displs) {
+  std::vector<double> final_result;
+
+  if (world_rank_ == 0) {
+    final_result.resize(n * n);
+  }
+
+  int send_count = static_cast<int>(local_result.size());
+  const double *send_data = local_result.empty() ? nullptr : local_result.data();
+  double *recv_data = world_rank_ == 0 ? final_result.data() : nullptr;
+  const int *recvcounts_ptr = world_rank_ == 0 ? recvcounts.data() : nullptr;
+  const int *displs_ptr = world_rank_ == 0 ? displs.data() : nullptr;
+
+  MPI_Gatherv(send_data, send_count, MPI_DOUBLE, recv_data, recvcounts_ptr, displs_ptr, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  return final_result;
+}
+
+std::vector<double> IlinAStrassenAlgorithmMPI::reorderGatheredResults(const std::vector<double> &gathered_data, int n,
+                                                                      const std::vector<int> &recvcounts,
+                                                                      const std::vector<int> &displs) {
+  if (world_rank_ != 0) {
+    return std::vector<double>();
+  }
+
+  (void)recvcounts;
+  (void)displs;
+
+  auto [rows_per_proc, remainder, _] = calculateRowDistribution(n);
+  std::vector<double> reordered_result(n * n);
+
+  int offset = 0;
+  for (int proc = 0; proc < world_size_; ++proc) {
+    int rows_for_proc = rows_per_proc + (proc < remainder ? 1 : 0);
+    int proc_start_row = 0;
+
+    for (int i = 0; i < proc; ++i) {
+      proc_start_row += rows_per_proc + (i < remainder ? 1 : 0);
+    }
+
+    for (int i = 0; i < rows_for_proc; ++i) {
+      int global_row = proc_start_row + i;
+      for (int j = 0; j < n; ++j) {
+        reordered_result[global_row * n + j] = gathered_data[offset + i * n + j];
+      }
+    }
+    offset += rows_for_proc * n;
+  }
+
+  return reordered_result;
+}
+
+std::vector<double> IlinAStrassenAlgorithmMPI::distributedNaiveMultiply(const std::vector<double> &A,
+                                                                        const std::vector<double> &B, int n) {
+  auto [rows_per_proc, remainder, local_rows] = calculateRowDistribution(n);
+
+  int start_row = 0;
+  for (int i = 0; i < world_rank_; ++i) {
+    int rows_for_i = rows_per_proc + (i < remainder ? 1 : 0);
+    start_row += rows_for_i;
+  }
+
+  std::vector<double> local_result;
+  if (local_rows > 0) {
+    local_result = computeLocalRows(A, B, n, start_row, local_rows);
+  }
+
+  std::vector<int> recvcounts, displs;
+  setupGatherParameters(n, recvcounts, displs);
+
+  std::vector<double> gathered = gatherLocalResults(local_result, n, recvcounts, displs);
+
+  if (world_rank_ == 0) {
+    return reorderGatheredResults(gathered, n, recvcounts, displs);
+  }
+
+  return std::vector<double>();
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::parallelStrassen(const std::vector<double> &A,
@@ -532,6 +559,70 @@ std::vector<double> IlinAStrassenAlgorithmMPI::multiplyMatrices(const std::vecto
   }
 }
 
+void IlinAStrassenAlgorithmMPI::prepareSmallMatricesCase(std::vector<double> &A_full, std::vector<double> &B_full,
+                                                         std::vector<double> &final_result) {
+  if (world_rank_ != 0) {
+    A_full.resize(original_size_ * original_size_);
+    B_full.resize(original_size_ * original_size_);
+  }
+
+  MPI_Bcast(A_full.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(B_full.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  final_result = distributedNaiveMultiply(A_full, B_full, original_size_);
+}
+
+void IlinAStrassenAlgorithmMPI::prepareLargeMatricesCase(std::vector<double> &A_full, std::vector<double> &B_full,
+                                                         std::vector<double> &final_result) {
+  std::vector<double> A_padded(padded_size_ * padded_size_, 0.0);
+  std::vector<double> B_padded(padded_size_ * padded_size_, 0.0);
+
+  if (world_rank_ == 0) {
+    for (int i = 0; i < original_size_; ++i) {
+      for (int j = 0; j < original_size_; ++j) {
+        A_padded[i * padded_size_ + j] = A_full[i * original_size_ + j];
+        B_padded[i * padded_size_ + j] = B_full[i * original_size_ + j];
+      }
+    }
+  }
+
+  if (world_rank_ != 0) {
+    A_padded.resize(padded_size_ * padded_size_);
+    B_padded.resize(padded_size_ * padded_size_);
+  }
+
+  MPI_Bcast(A_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(B_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  auto C_padded = multiplyMatrices(A_padded, B_padded, padded_size_);
+
+  if (world_rank_ == 0 && !C_padded.empty()) {
+    final_result.resize(original_size_ * original_size_);
+    for (int i = 0; i < original_size_; ++i) {
+      for (int j = 0; j < original_size_; ++j) {
+        final_result[i * original_size_ + j] = C_padded[i * padded_size_ + j];
+      }
+    }
+  }
+}
+
+void IlinAStrassenAlgorithmMPI::distributeFinalResult(std::vector<double> &final_result) {
+  auto &output = GetOutput();
+
+  if (world_rank_ == 0) {
+    if (!final_result.empty()) {
+      output.C = final_result;
+      output.size = original_size_;
+      MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
+  } else {
+    final_result.resize(original_size_ * original_size_);
+    MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    output.C = final_result;
+    output.size = original_size_;
+  }
+}
+
 bool IlinAStrassenAlgorithmMPI::RunImpl() {
   std::vector<double> A_full, B_full;
 
@@ -544,63 +635,12 @@ bool IlinAStrassenAlgorithmMPI::RunImpl() {
   std::vector<double> final_result;
 
   if (original_size_ <= threshold_) {
-    if (world_rank_ != 0) {
-      A_full.resize(original_size_ * original_size_);
-      B_full.resize(original_size_ * original_size_);
-    }
-
-    MPI_Bcast(A_full.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(B_full.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    final_result = distributedNaiveMultiply(A_full, B_full, original_size_);
+    prepareSmallMatricesCase(A_full, B_full, final_result);
   } else {
-    std::vector<double> A_padded(padded_size_ * padded_size_, 0.0);
-    std::vector<double> B_padded(padded_size_ * padded_size_, 0.0);
-
-    if (world_rank_ == 0) {
-      for (int i = 0; i < original_size_; ++i) {
-        for (int j = 0; j < original_size_; ++j) {
-          A_padded[i * padded_size_ + j] = A_full[i * original_size_ + j];
-          B_padded[i * padded_size_ + j] = B_full[i * original_size_ + j];
-        }
-      }
-    }
-
-    if (world_rank_ != 0) {
-      A_padded.resize(padded_size_ * padded_size_);
-      B_padded.resize(padded_size_ * padded_size_);
-    }
-
-    MPI_Bcast(A_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(B_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    auto C_padded = multiplyMatrices(A_padded, B_padded, padded_size_);
-
-    if (world_rank_ == 0 && !C_padded.empty()) {
-      final_result.resize(original_size_ * original_size_);
-      for (int i = 0; i < original_size_; ++i) {
-        for (int j = 0; j < original_size_; ++j) {
-          final_result[i * original_size_ + j] = C_padded[i * padded_size_ + j];
-        }
-      }
-    }
+    prepareLargeMatricesCase(A_full, B_full, final_result);
   }
 
-  auto &output = GetOutput();
-
-  if (world_rank_ == 0) {
-    if (!final_result.empty()) {
-      output.C = final_result;
-      output.size = original_size_;
-
-      MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    }
-  } else {
-    final_result.resize(original_size_ * original_size_);
-    MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    output.C = final_result;
-    output.size = original_size_;
-  }
+  distributeFinalResult(final_result);
 
   return true;
 }
