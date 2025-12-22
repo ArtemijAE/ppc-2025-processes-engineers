@@ -533,8 +533,6 @@ std::vector<double> IlinAStrassenAlgorithmMPI::multiplyMatrices(const std::vecto
 }
 
 bool IlinAStrassenAlgorithmMPI::RunImpl() {
-  auto start_time = std::chrono::high_resolution_clock::now();
-
   std::vector<double> A_full, B_full;
 
   if (world_rank_ == 0) {
@@ -603,9 +601,6 @@ bool IlinAStrassenAlgorithmMPI::RunImpl() {
     output.C = final_result;
     output.size = original_size_;
   }
-
-  auto end_time = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 
   return true;
 }
