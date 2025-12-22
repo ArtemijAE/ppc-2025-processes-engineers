@@ -12,7 +12,7 @@ namespace ilin_a_strassen_algorithm {
 
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
-  const int kMatrixSize_ = 128;
+  static constexpr int kMatrixSize_ = 128;
   InType input_data_{};
 
   void SetUp() override {
@@ -29,20 +29,20 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
   }
 
  private:
-  void GenerateTestData(int size) {
+  void GenerateTestData(const int size) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
-    input_data_.A.resize(size * size);
-    input_data_.B.resize(size * size);
+    input_data_.A.resize(static_cast<size_t>(size * size));
+    input_data_.B.resize(static_cast<size_t>(size * size));
     input_data_.size = size;
 
     gen.seed(42);
 
     for (int i = 0; i < size * size; ++i) {
-      input_data_.A[i] = dist(gen);
-      input_data_.B[i] = dist(gen);
+      input_data_.A[static_cast<size_t>(i)] = dist(gen);
+      input_data_.B[static_cast<size_t>(i)] = dist(gen);
     }
   }
 };
