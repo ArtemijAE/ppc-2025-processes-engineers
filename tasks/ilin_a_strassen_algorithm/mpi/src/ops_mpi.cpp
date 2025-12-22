@@ -3,30 +3,25 @@
 #include <mpi.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <tuple>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
-#include "util/include/util.hpp"
 
 namespace ilin_a_strassen_algorithm {
 
-IlinAStrassenAlgorithmMPI::IlinAStrassenAlgorithmMPI(const InType &in) {
+IlinAStrassenAlgorithmMPI::IlinAStrassenAlgorithmMPI(const InType &in)
+    : world_size_(0), world_rank_(0), original_size_(0), padded_size_(0) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput().size = 0;
   GetOutput().C.clear();
-
-  world_size_ = 0;
-  world_rank_ = 0;
-  original_size_ = 0;
-  padded_size_ = 0;
 }
 
 bool IlinAStrassenAlgorithmMPI::ValidationImpl() {
-  int rank;
+  int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   GetOutput().size = 0;
@@ -41,16 +36,16 @@ bool IlinAStrassenAlgorithmMPI::ValidationImpl() {
     if (input.size <= 0) {
       validation_result = 0;
     }
-    if (input.A.size() != static_cast<size_t>(input.size * input.size)) {
+    if (input.A.size() != static_cast<std::size_t>(input.size * input.size)) {
       validation_result = 0;
     }
-    if (input.B.size() != static_cast<size_t>(input.size * input.size)) {
+    if (input.B.size() != static_cast<std::size_t>(input.size * input.size)) {
       validation_result = 0;
     }
 
     MPI_Bcast(&validation_result, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    if (validation_result) {
+    if (validation_result != 0) {
       MPI_Bcast(&size_to_bcast, 1, MPI_INT, 0, MPI_COMM_WORLD);
       return true;
     } else {
@@ -59,15 +54,15 @@ bool IlinAStrassenAlgorithmMPI::ValidationImpl() {
       return false;
     }
   } else {
-    int validation_result;
+    int validation_result = 0;
     MPI_Bcast(&validation_result, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    if (validation_result) {
-      int size;
+    if (validation_result != 0) {
+      int size = 0;
       MPI_Bcast(&size, 1, MPI_INT, 0, MPI_COMM_WORLD);
       return size > 0;
     } else {
-      int error_size;
+      int error_size = 0;
       MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
       return false;
     }
@@ -116,10 +111,10 @@ void IlinAStrassenAlgorithmMPI::SplitMatrix(const std::vector<double> &a, std::v
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      a11[i * half + j] = a[i * n + j];
-      a12[i * half + j] = a[i * n + (j + half)];
-      a21[i * half + j] = a[(i + half) * n + j];
-      a22[i * half + j] = a[(i + half) * n + (j + half)];
+      a11[(i * half) + j] = a[(i * n) + j];
+      a12[(i * half) + j] = a[(i * n) + (j + half)];
+      a21[(i * half) + j] = a[((i + half) * n) + j];
+      a22[(i * half) + j] = a[((i + half) * n) + (j + half)];
     }
   }
 }
@@ -130,23 +125,23 @@ void IlinAStrassenAlgorithmMPI::JoinMatrix(std::vector<double> &a, const std::ve
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      a[i * n + j] = a11[i * half + j];
-      a[i * n + (j + half)] = a12[i * half + j];
-      a[(i + half) * n + j] = a21[i * half + j];
-      a[(i + half) * n + (j + half)] = a22[i * half + j];
+      a[(i * n) + j] = a11[(i * half) + j];
+      a[(i * n) + (j + half)] = a12[(i * half) + j];
+      a[((i + half) * n) + j] = a21[(i * half) + j];
+      a[((i + half) * n) + (j + half)] = a22[(i * half) + j];
     }
   }
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n) {
-  std::vector<double> c(n * n, 0.0);
+  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n), 0.0);
 
   for (int i = 0; i < n; ++i) {
     for (int k = 0; k < n; ++k) {
-      double aik = a[i * n + k];
+      double aik = a[(i * n) + k];
       for (int j = 0; j < n; ++j) {
-        c[i * n + j] += aik * b[k * n + j];
+        c[(i * n) + j] += aik * b[(k * n) + j];
       }
     }
   }
@@ -156,20 +151,34 @@ std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vecto
 
 std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vector<double> &a,
                                                                   const std::vector<double> &b, int n) {
-  if (n <= kThreshold_) {
+  if (n <= kThreshold) {
     return NaiveMultiplySeq(a, b, n);
   }
 
   int half = n / 2;
+  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
 
-  std::vector<double> a11(half * half), a12(half * half), a21(half * half), a22(half * half);
-  std::vector<double> b11(half * half), b12(half * half), b21(half * half), b22(half * half);
+  std::vector<double> a11(half_sq);
+  std::vector<double> a12(half_sq);
+  std::vector<double> a21(half_sq);
+  std::vector<double> a22(half_sq);
+  std::vector<double> b11(half_sq);
+  std::vector<double> b12(half_sq);
+  std::vector<double> b21(half_sq);
+  std::vector<double> b22(half_sq);
 
   SplitMatrix(a, a11, a12, a21, a22, n);
   SplitMatrix(b, b11, b12, b21, b22, n);
 
-  std::vector<double> p1, p2, p3, p4, p5, p6, p7;
-  std::vector<double> temp1(half * half), temp2(half * half);
+  std::vector<double> p1;
+  std::vector<double> p2;
+  std::vector<double> p3;
+  std::vector<double> p4;
+  std::vector<double> p5;
+  std::vector<double> p6;
+  std::vector<double> p7;
+  std::vector<double> temp1(half_sq);
+  std::vector<double> temp2(half_sq);
 
   AddMatrix(a11, a22, temp1, half);
   AddMatrix(b11, b22, temp2, half);
@@ -195,7 +204,10 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
   AddMatrix(b21, b22, temp2, half);
   p7 = StrassenSequential(temp1, temp2, half);
 
-  std::vector<double> c11(half * half), c12(half * half), c21(half * half), c22(half * half);
+  std::vector<double> c11(half_sq);
+  std::vector<double> c12(half_sq);
+  std::vector<double> c21(half_sq);
+  std::vector<double> c22(half_sq);
 
   AddMatrix(p1, p4, c11, half);
   SubtractMatrix(c11, p5, c11, half);
@@ -209,7 +221,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
   SubtractMatrix(c22, p2, c22, half);
   AddMatrix(c22, p6, c22, half);
 
-  std::vector<double> c(n * n);
+  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
@@ -240,7 +252,9 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
                                                      const std::vector<double> &b12, const std::vector<double> &b21,
                                                      const std::vector<double> &b22, int half,
                                                      std::vector<double> &result) {
-  std::vector<double> temp1(half * half), temp2(half * half);
+  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+  std::vector<double> temp1(half_sq);
+  std::vector<double> temp2(half_sq);
 
   switch (product_idx) {
     case 0:
@@ -274,13 +288,16 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
       AddMatrix(b21, b22, temp2, half);
       result = ParallelStrassenRecursive(temp1, temp2, half);
       break;
+    default:
+      result = std::vector<double>(half_sq);
+      break;
   }
 }
 
 void IlinAStrassenAlgorithmMPI::GatherProductMatrix(const std::vector<double> &local_product,
-                                                    std::vector<double> &buffer) {
+                                                    std::vector<double> &buffer) const {
   int matrix_size = static_cast<int>(local_product.size());
-  buffer.resize(matrix_size * world_size_);
+  buffer.resize(static_cast<std::size_t>(matrix_size) * static_cast<std::size_t>(world_size_));
   MPI_Allgather(local_product.data(), matrix_size, MPI_DOUBLE, buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
 }
 
@@ -291,7 +308,7 @@ void IlinAStrassenAlgorithmMPI::MergeProductFromBuffer(const std::vector<double>
     bool has_data = false;
 
     for (int i = 0; i < matrix_size; i++) {
-      if (buffer[offset + i] != 0.0) {
+      if (buffer[static_cast<std::size_t>(offset) + i] != 0.0) {
         has_data = true;
         break;
       }
@@ -325,19 +342,32 @@ void IlinAStrassenAlgorithmMPI::ComputeResultFromProducts(const std::vector<doub
 
 std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const std::vector<double> &a,
                                                                          const std::vector<double> &b, int n) {
-  if (n <= kThreshold_) {
+  if (n <= kThreshold) {
     return StrassenSequential(a, b, n);
   }
 
   int half = n / 2;
+  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
 
-  std::vector<double> a11(half * half), a12(half * half), a21(half * half), a22(half * half);
-  std::vector<double> b11(half * half), b12(half * half), b21(half * half), b22(half * half);
+  std::vector<double> a11(half_sq);
+  std::vector<double> a12(half_sq);
+  std::vector<double> a21(half_sq);
+  std::vector<double> a22(half_sq);
+  std::vector<double> b11(half_sq);
+  std::vector<double> b12(half_sq);
+  std::vector<double> b21(half_sq);
+  std::vector<double> b22(half_sq);
 
   SplitMatrix(a, a11, a12, a21, a22, n);
   SplitMatrix(b, b11, b12, b21, b22, n);
 
-  std::vector<double> p1, p2, p3, p4, p5, p6, p7;
+  std::vector<double> p1;
+  std::vector<double> p2;
+  std::vector<double> p3;
+  std::vector<double> p4;
+  std::vector<double> p5;
+  std::vector<double> p6;
+  std::vector<double> p7;
 
   auto [start_matrix, end_matrix] = CalculateMatrixRange(7);
 
@@ -364,34 +394,42 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const s
       case 6:
         ComputeSingleProduct(6, a11, a12, a21, a22, b11, b12, b21, b22, half, p7);
         break;
+      default:
+        break;
     }
   }
 
   int matrix_size = half * half;
 
   if (p1.empty()) {
-    p1.resize(matrix_size, 0.0);
+    p1.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p2.empty()) {
-    p2.resize(matrix_size, 0.0);
+    p2.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p3.empty()) {
-    p3.resize(matrix_size, 0.0);
+    p3.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p4.empty()) {
-    p4.resize(matrix_size, 0.0);
+    p4.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p5.empty()) {
-    p5.resize(matrix_size, 0.0);
+    p5.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p6.empty()) {
-    p6.resize(matrix_size, 0.0);
+    p6.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
   if (p7.empty()) {
-    p7.resize(matrix_size, 0.0);
+    p7.resize(static_cast<std::size_t>(matrix_size), 0.0);
   }
 
-  std::vector<double> p1_buffer, p2_buffer, p3_buffer, p4_buffer, p5_buffer, p6_buffer, p7_buffer;
+  std::vector<double> p1_buffer;
+  std::vector<double> p2_buffer;
+  std::vector<double> p3_buffer;
+  std::vector<double> p4_buffer;
+  std::vector<double> p5_buffer;
+  std::vector<double> p6_buffer;
+  std::vector<double> p7_buffer;
 
   GatherProductMatrix(p1, p1_buffer);
   GatherProductMatrix(p2, p2_buffer);
@@ -409,10 +447,13 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const s
   MergeProductFromBuffer(p6_buffer, world_size_, matrix_size, p6);
   MergeProductFromBuffer(p7_buffer, world_size_, matrix_size, p7);
 
-  std::vector<double> c11(half * half), c12(half * half), c21(half * half), c22(half * half);
+  std::vector<double> c11(half_sq);
+  std::vector<double> c12(half_sq);
+  std::vector<double> c21(half_sq);
+  std::vector<double> c22(half_sq);
   ComputeResultFromProducts(p1, p2, p3, p4, p5, p6, p7, half, c11, c12, c21, c22);
 
-  std::vector<double> c(n * n);
+  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
@@ -428,16 +469,16 @@ std::tuple<int, int, int> IlinAStrassenAlgorithmMPI::CalculateRowDistribution(in
 std::vector<double> IlinAStrassenAlgorithmMPI::ComputeLocalRows(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n, int start_row,
                                                                 int local_rows) {
-  std::vector<double> local_result(local_rows * n, 0.0);
+  std::vector<double> local_result(static_cast<std::size_t>(local_rows) * static_cast<std::size_t>(n), 0.0);
 
   for (int i = 0; i < local_rows; ++i) {
     int global_i = start_row + i;
     for (int j = 0; j < n; ++j) {
       double sum = 0.0;
       for (int k = 0; k < n; ++k) {
-        sum += a[global_i * n + k] * b[k * n + j];
+        sum += a[(global_i * n) + k] * b[(k * n) + j];
       }
-      local_result[i * n + j] = sum;
+      local_result[(i * n) + j] = sum;
     }
   }
 
@@ -451,25 +492,25 @@ void IlinAStrassenAlgorithmMPI::SetupGatherParameters(int n, std::vector<int> &r
   }
 
   auto [rows_per_proc, remainder, _] = CalculateRowDistribution(n);
-  recvcounts.resize(world_size_);
-  displs.resize(world_size_);
+  recvcounts.resize(static_cast<std::size_t>(world_size_));
+  displs.resize(static_cast<std::size_t>(world_size_));
 
   int offset = 0;
   for (int i = 0; i < world_size_; ++i) {
     int rows_for_i = rows_per_proc + (i < remainder ? 1 : 0);
-    recvcounts[i] = rows_for_i * n;
-    displs[i] = offset;
-    offset += recvcounts[i];
+    recvcounts[static_cast<std::size_t>(i)] = rows_for_i * n;
+    displs[static_cast<std::size_t>(i)] = offset;
+    offset += recvcounts[static_cast<std::size_t>(i)];
   }
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::GatherLocalResults(const std::vector<double> &local_result, int n,
                                                                   const std::vector<int> &recvcounts,
-                                                                  const std::vector<int> &displs) {
+                                                                  const std::vector<int> &displs) const {
   std::vector<double> final_result;
 
   if (world_rank_ == 0) {
-    final_result.resize(n * n);
+    final_result.resize(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
   }
 
   int send_count = static_cast<int>(local_result.size());
@@ -483,13 +524,14 @@ std::vector<double> IlinAStrassenAlgorithmMPI::GatherLocalResults(const std::vec
   return final_result;
 }
 
-std::vector<double> IlinAStrassenAlgorithmMPI::ReorderGatheredResults(const std::vector<double> &gathered_data, int n) {
+std::vector<double> IlinAStrassenAlgorithmMPI::ReorderGatheredResults(const std::vector<double> &gathered_data,
+                                                                      int n) const {
   if (world_rank_ != 0) {
-    return std::vector<double>();
+    return {};
   }
 
   auto [rows_per_proc, remainder, _] = CalculateRowDistribution(n);
-  std::vector<double> reordered_result(n * n);
+  std::vector<double> reordered_result(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
 
   int offset = 0;
   for (int proc = 0; proc < world_size_; ++proc) {
@@ -503,7 +545,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ReorderGatheredResults(const std:
     for (int i = 0; i < rows_for_proc; ++i) {
       int global_row = proc_start_row + i;
       for (int j = 0; j < n; ++j) {
-        reordered_result[global_row * n + j] = gathered_data[offset + i * n + j];
+        reordered_result[(global_row * n) + j] = gathered_data[offset + (i * n) + j];
       }
     }
     offset += rows_for_proc * n;
@@ -527,7 +569,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::DistributedNaiveMultiply(const st
     local_result = ComputeLocalRows(a, b, n, start_row, local_rows);
   }
 
-  std::vector<int> recvcounts, displs;
+  std::vector<int> recvcounts;
+  std::vector<int> displs;
   SetupGatherParameters(n, recvcounts, displs);
 
   std::vector<double> gathered = GatherLocalResults(local_result, n, recvcounts, displs);
@@ -536,7 +579,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::DistributedNaiveMultiply(const st
     return ReorderGatheredResults(gathered, n);
   }
 
-  return std::vector<double>();
+  return {};
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassen(const std::vector<double> &a,
@@ -546,7 +589,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassen(const std::vecto
 
 std::vector<double> IlinAStrassenAlgorithmMPI::MultiplyMatrices(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n) {
-  if (n <= kThreshold_) {
+  if (n <= kThreshold) {
     return DistributedNaiveMultiply(a, b, n);
   } else {
     return ParallelStrassen(a, b, n);
@@ -556,8 +599,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::MultiplyMatrices(const std::vecto
 void IlinAStrassenAlgorithmMPI::PrepareSmallMatricesCase(std::vector<double> &a_full, std::vector<double> &b_full,
                                                          std::vector<double> &final_result) {
   if (world_rank_ != 0) {
-    a_full.resize(original_size_ * original_size_);
-    b_full.resize(original_size_ * original_size_);
+    a_full.resize(static_cast<std::size_t>(original_size_) * static_cast<std::size_t>(original_size_));
+    b_full.resize(static_cast<std::size_t>(original_size_) * static_cast<std::size_t>(original_size_));
   }
 
   MPI_Bcast(a_full.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -568,21 +611,22 @@ void IlinAStrassenAlgorithmMPI::PrepareSmallMatricesCase(std::vector<double> &a_
 
 void IlinAStrassenAlgorithmMPI::PrepareLargeMatricesCase(std::vector<double> &a_full, std::vector<double> &b_full,
                                                          std::vector<double> &final_result) {
-  std::vector<double> a_padded(padded_size_ * padded_size_, 0.0);
-  std::vector<double> b_padded(padded_size_ * padded_size_, 0.0);
+  std::size_t padded_size_sq = static_cast<std::size_t>(padded_size_) * static_cast<std::size_t>(padded_size_);
+  std::vector<double> a_padded(padded_size_sq, 0.0);
+  std::vector<double> b_padded(padded_size_sq, 0.0);
 
   if (world_rank_ == 0) {
     for (int i = 0; i < original_size_; ++i) {
       for (int j = 0; j < original_size_; ++j) {
-        a_padded[i * padded_size_ + j] = a_full[i * original_size_ + j];
-        b_padded[i * padded_size_ + j] = b_full[i * original_size_ + j];
+        a_padded[(i * padded_size_) + j] = a_full[(i * original_size_) + j];
+        b_padded[(i * padded_size_) + j] = b_full[(i * original_size_) + j];
       }
     }
   }
 
   if (world_rank_ != 0) {
-    a_padded.resize(padded_size_ * padded_size_);
-    b_padded.resize(padded_size_ * padded_size_);
+    a_padded.resize(padded_size_sq);
+    b_padded.resize(padded_size_sq);
   }
 
   MPI_Bcast(a_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -591,10 +635,10 @@ void IlinAStrassenAlgorithmMPI::PrepareLargeMatricesCase(std::vector<double> &a_
   auto c_padded = MultiplyMatrices(a_padded, b_padded, padded_size_);
 
   if (world_rank_ == 0 && !c_padded.empty()) {
-    final_result.resize(original_size_ * original_size_);
+    final_result.resize(static_cast<std::size_t>(original_size_) * static_cast<std::size_t>(original_size_));
     for (int i = 0; i < original_size_; ++i) {
       for (int j = 0; j < original_size_; ++j) {
-        final_result[i * original_size_ + j] = c_padded[i * padded_size_ + j];
+        final_result[(i * original_size_) + j] = c_padded[(i * padded_size_) + j];
       }
     }
   }
@@ -610,7 +654,7 @@ void IlinAStrassenAlgorithmMPI::DistributeFinalResult(std::vector<double> &final
       MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
   } else {
-    final_result.resize(original_size_ * original_size_);
+    final_result.resize(static_cast<std::size_t>(original_size_) * static_cast<std::size_t>(original_size_));
     MPI_Bcast(final_result.data(), original_size_ * original_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     output.C = final_result;
     output.size = original_size_;
@@ -618,7 +662,8 @@ void IlinAStrassenAlgorithmMPI::DistributeFinalResult(std::vector<double> &final
 }
 
 bool IlinAStrassenAlgorithmMPI::RunImpl() {
-  std::vector<double> a_full, b_full;
+  std::vector<double> a_full;
+  std::vector<double> b_full;
 
   if (world_rank_ == 0) {
     auto &input = GetInput();
@@ -628,7 +673,7 @@ bool IlinAStrassenAlgorithmMPI::RunImpl() {
 
   std::vector<double> final_result;
 
-  if (original_size_ <= kThreshold_) {
+  if (original_size_ <= kThreshold) {
     PrepareSmallMatricesCase(a_full, b_full, final_result);
   } else {
     PrepareLargeMatricesCase(a_full, b_full, final_result);

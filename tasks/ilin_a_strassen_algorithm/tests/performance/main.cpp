@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <random>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
@@ -12,16 +11,16 @@ namespace ilin_a_strassen_algorithm {
 
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
-  static constexpr int kMatrixSize_ = 128;
+  static constexpr int kMatrixSize = 128;
   InType input_data_{};
 
   void SetUp() override {
-    GenerateTestData(kMatrixSize_);
+    GenerateTestData(kMatrixSize);
   }
 
   bool CheckTestOutputData(OutType &output_data) final {
-    return (output_data.size == kMatrixSize_ &&
-            output_data.C.size() == static_cast<size_t>(kMatrixSize_ * kMatrixSize_));
+    return (output_data.size == kMatrixSize &&
+            output_data.C.size() == static_cast<std::size_t>(kMatrixSize * kMatrixSize));
   }
 
   InType GetTestInputData() final {
@@ -34,15 +33,15 @@ class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, Out
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
-    input_data_.A.resize(static_cast<size_t>(size * size));
-    input_data_.B.resize(static_cast<size_t>(size * size));
+    input_data_.A.resize(static_cast<std::size_t>(size) * static_cast<std::size_t>(size));
+    input_data_.B.resize(static_cast<std::size_t>(size) * static_cast<std::size_t>(size));
     input_data_.size = size;
 
-    gen.seed(42);
+    gen.seed(42U);
 
     for (int i = 0; i < size * size; ++i) {
-      input_data_.A[static_cast<size_t>(i)] = dist(gen);
-      input_data_.B[static_cast<size_t>(i)] = dist(gen);
+      input_data_.A[static_cast<std::size_t>(i)] = dist(gen);
+      input_data_.B[static_cast<std::size_t>(i)] = dist(gen);
     }
   }
 };

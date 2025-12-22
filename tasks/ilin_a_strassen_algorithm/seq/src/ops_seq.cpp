@@ -1,23 +1,17 @@
 #include "ilin_a_strassen_algorithm/seq/include/ops_seq.hpp"
 
-#include <algorithm>
-#include <chrono>
 #include <cmath>
-#include <iostream>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
-#include "util/include/util.hpp"
 
 namespace ilin_a_strassen_algorithm {
 
-IlinAStrassenAlgorithmSEQ::IlinAStrassenAlgorithmSEQ(const InType &in) {
+IlinAStrassenAlgorithmSEQ::IlinAStrassenAlgorithmSEQ(const InType &in) : original_size_(0), padded_size_(0) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput().size = 0;
   GetOutput().C.clear();
-  original_size_ = 0;
-  padded_size_ = 0;
 }
 
 bool IlinAStrassenAlgorithmSEQ::ValidationImpl() {
@@ -29,10 +23,10 @@ bool IlinAStrassenAlgorithmSEQ::ValidationImpl() {
   if (input.size <= 0) {
     return false;
   }
-  if (input.A.size() != static_cast<size_t>(input.size * input.size)) {
+  if (input.A.size() != static_cast<std::size_t>(input.size * input.size)) {
     return false;
   }
-  if (input.B.size() != static_cast<size_t>(input.size * input.size)) {
+  if (input.B.size() != static_cast<std::size_t>(input.size * input.size)) {
     return false;
   }
 
@@ -54,13 +48,13 @@ bool IlinAStrassenAlgorithmSEQ::PreProcessingImpl() {
 
 std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<double> &a, const std::vector<double> &b,
                                                              int n) {
-  std::vector<double> c(n * n, 0.0);
+  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n), 0.0);
 
   for (int i = 0; i < n; ++i) {
     for (int k = 0; k < n; ++k) {
-      double aik = a[i * n + k];
+      double aik = a[(i * n) + k];
       for (int j = 0; j < n; ++j) {
-        c[i * n + j] += aik * b[k * n + j];
+        c[(i * n) + j] += aik * b[(k * n) + j];
       }
     }
   }
@@ -72,7 +66,8 @@ std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::ComputeStrassenProdu
     const std::vector<double> &a22, const std::vector<double> &b11, const std::vector<double> &b12,
     const std::vector<double> &b21, const std::vector<double> &b22, int half) {
   std::vector<std::vector<double>> products(7);
-  std::vector<double> temp1(half * half), temp2(half * half);
+  std::vector<double> temp1(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
+  std::vector<double> temp2(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
 
   AddMatrix(a11, a22, temp1, half);
   AddMatrix(b11, b22, temp2, half);
@@ -127,25 +122,35 @@ void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::
 
 std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n) {
-  if (n <= kThreshold_) {
+  if (n <= kThreshold) {
     return NaiveMultiply(a, b, n);
   }
 
   int half = n / 2;
+  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
 
-  std::vector<double> a11(half * half), a12(half * half), a21(half * half), a22(half * half);
-  std::vector<double> b11(half * half), b12(half * half), b21(half * half), b22(half * half);
+  std::vector<double> a11(half_sq);
+  std::vector<double> a12(half_sq);
+  std::vector<double> a21(half_sq);
+  std::vector<double> a22(half_sq);
+  std::vector<double> b11(half_sq);
+  std::vector<double> b12(half_sq);
+  std::vector<double> b21(half_sq);
+  std::vector<double> b22(half_sq);
 
   SplitMatrix(a, a11, a12, a21, a22, n);
   SplitMatrix(b, b11, b12, b21, b22, n);
 
   auto products = ComputeStrassenProducts(a11, a12, a21, a22, b11, b12, b21, b22, half);
 
-  std::vector<double> c11(half * half), c12(half * half), c21(half * half), c22(half * half);
+  std::vector<double> c11(half_sq);
+  std::vector<double> c12(half_sq);
+  std::vector<double> c21(half_sq);
+  std::vector<double> c22(half_sq);
 
   ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
 
-  std::vector<double> c(n * n);
+  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
@@ -157,26 +162,27 @@ bool IlinAStrassenAlgorithmSEQ::RunImpl() {
 
   int n = input.size;
 
-  if (n <= kThreshold_) {
+  if (n <= kThreshold) {
     output.C = NaiveMultiply(input.A, input.B, n);
     output.size = n;
   } else {
-    std::vector<double> a_padded(padded_size_ * padded_size_, 0.0);
-    std::vector<double> b_padded(padded_size_ * padded_size_, 0.0);
+    std::size_t padded_size_sq = static_cast<std::size_t>(padded_size_) * static_cast<std::size_t>(padded_size_);
+    std::vector<double> a_padded(padded_size_sq, 0.0);
+    std::vector<double> b_padded(padded_size_sq, 0.0);
 
     for (int i = 0; i < original_size_; ++i) {
       for (int j = 0; j < original_size_; ++j) {
-        a_padded[i * padded_size_ + j] = input.A[i * n + j];
-        b_padded[i * padded_size_ + j] = input.B[i * n + j];
+        a_padded[(i * padded_size_) + j] = input.A[(i * n) + j];
+        b_padded[(i * padded_size_) + j] = input.B[(i * n) + j];
       }
     }
 
     std::vector<double> c_padded = StrassenMultiply(a_padded, b_padded, padded_size_);
 
-    output.C.resize(n * n);
+    output.C.resize(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
-        output.C[i * n + j] = c_padded[i * padded_size_ + j];
+        output.C[(i * n) + j] = c_padded[(i * padded_size_) + j];
       }
     }
     output.size = n;
@@ -209,10 +215,10 @@ void IlinAStrassenAlgorithmSEQ::SplitMatrix(const std::vector<double> &a, std::v
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      a11[i * half + j] = a[i * n + j];
-      a12[i * half + j] = a[i * n + (j + half)];
-      a21[i * half + j] = a[(i + half) * n + j];
-      a22[i * half + j] = a[(i + half) * n + (j + half)];
+      a11[(i * half) + j] = a[(i * n) + j];
+      a12[(i * half) + j] = a[(i * n) + (j + half)];
+      a21[(i * half) + j] = a[((i + half) * n) + j];
+      a22[(i * half) + j] = a[((i + half) * n) + (j + half)];
     }
   }
 }
@@ -223,10 +229,10 @@ void IlinAStrassenAlgorithmSEQ::JoinMatrix(std::vector<double> &a, const std::ve
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      a[i * n + j] = a11[i * half + j];
-      a[i * n + (j + half)] = a12[i * half + j];
-      a[(i + half) * n + j] = a21[i * half + j];
-      a[(i + half) * n + (j + half)] = a22[i * half + j];
+      a[(i * n) + j] = a11[(i * half) + j];
+      a[(i * n) + (j + half)] = a12[(i * half) + j];
+      a[((i + half) * n) + j] = a21[(i * half) + j];
+      a[((i + half) * n) + (j + half)] = a22[(i * half) + j];
     }
   }
 }

@@ -1,10 +1,9 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <random>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -12,7 +11,6 @@
 #include "ilin_a_strassen_algorithm/mpi/include/ops_mpi.hpp"
 #include "ilin_a_strassen_algorithm/seq/include/ops_seq.hpp"
 #include "util/include/func_test_util.hpp"
-#include "util/include/util.hpp"
 
 namespace ilin_a_strassen_algorithm {
 
@@ -31,15 +29,15 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(1.0, 10.0);
 
-    input_data_.A.resize(static_cast<size_t>(matrix_size_ * matrix_size_));
-    input_data_.B.resize(static_cast<size_t>(matrix_size_ * matrix_size_));
+    input_data_.A.resize(static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_));
+    input_data_.B.resize(static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_));
     input_data_.size = matrix_size_;
 
-    gen.seed(42 + matrix_size_);
+    gen.seed(static_cast<unsigned int>(42 + matrix_size_));
 
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
-      input_data_.A[static_cast<size_t>(i)] = dist(gen);
-      input_data_.B[static_cast<size_t>(i)] = dist(gen);
+      input_data_.A[static_cast<std::size_t>(i)] = dist(gen);
+      input_data_.B[static_cast<std::size_t>(i)] = dist(gen);
     }
   }
 
@@ -48,25 +46,25 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       return false;
     }
 
-    if (output_data.C.size() != static_cast<size_t>(matrix_size_ * matrix_size_)) {
+    if (output_data.C.size() != static_cast<std::size_t>(matrix_size_ * matrix_size_)) {
       return false;
     }
 
-    std::vector<double> reference(static_cast<size_t>(matrix_size_ * matrix_size_), 0.0);
+    std::vector<double> reference(static_cast<std::size_t>(matrix_size_ * matrix_size_), 0.0);
     for (int i = 0; i < matrix_size_; ++i) {
       for (int j = 0; j < matrix_size_; ++j) {
         double sum = 0.0;
         for (int k = 0; k < matrix_size_; ++k) {
-          sum += input_data_.A[static_cast<size_t>(i * matrix_size_ + k)] *
-                 input_data_.B[static_cast<size_t>(k * matrix_size_ + j)];
+          sum += input_data_.A[static_cast<std::size_t>((i * matrix_size_) + k)] *
+                 input_data_.B[static_cast<std::size_t>((k * matrix_size_) + j)];
         }
-        reference[static_cast<size_t>(i * matrix_size_ + j)] = sum;
+        reference[static_cast<std::size_t>((i * matrix_size_) + j)] = sum;
       }
     }
 
     const double tolerance = 1e-6;
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
-      if (std::abs(output_data.C[static_cast<size_t>(i)] - reference[static_cast<size_t>(i)]) > tolerance) {
+      if (std::abs(output_data.C[static_cast<std::size_t>(i)] - reference[static_cast<std::size_t>(i)]) > tolerance) {
         return false;
       }
     }
@@ -80,7 +78,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
  private:
   int matrix_size_ = 0;
-  InType input_data_;
+  InType input_data_{};
 };
 
 namespace {
