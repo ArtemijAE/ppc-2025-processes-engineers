@@ -52,103 +52,103 @@ bool IlinAStrassenAlgorithmSEQ::PreProcessingImpl() {
   return true;
 }
 
-std::vector<double> IlinAStrassenAlgorithmSEQ::naiveMultiply(const std::vector<double> &A, const std::vector<double> &B,
+std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<double> &a, const std::vector<double> &b,
                                                              int n) {
-  std::vector<double> C(n * n, 0.0);
+  std::vector<double> c(n * n, 0.0);
 
   for (int i = 0; i < n; ++i) {
     for (int k = 0; k < n; ++k) {
-      double aik = A[i * n + k];
+      double aik = a[i * n + k];
       for (int j = 0; j < n; ++j) {
-        C[i * n + j] += aik * B[k * n + j];
+        c[i * n + j] += aik * b[k * n + j];
       }
     }
   }
-  return C;
+  return c;
 }
 
-std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::computeStrassenProducts(
-    const std::vector<double> &A11, const std::vector<double> &A12, const std::vector<double> &A21,
-    const std::vector<double> &A22, const std::vector<double> &B11, const std::vector<double> &B12,
-    const std::vector<double> &B21, const std::vector<double> &B22, int half) {
+std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::ComputeStrassenProducts(
+    const std::vector<double> &a11, const std::vector<double> &a12, const std::vector<double> &a21,
+    const std::vector<double> &a22, const std::vector<double> &b11, const std::vector<double> &b12,
+    const std::vector<double> &b21, const std::vector<double> &b22, int half) {
   std::vector<std::vector<double>> products(7);
   std::vector<double> temp1(half * half), temp2(half * half);
 
-  addMatrix(A11, A22, temp1, half);
-  addMatrix(B11, B22, temp2, half);
-  products[0] = strassenMultiply(temp1, temp2, half);
+  AddMatrix(a11, a22, temp1, half);
+  AddMatrix(b11, b22, temp2, half);
+  products[0] = StrassenMultiply(temp1, temp2, half);
 
-  addMatrix(A21, A22, temp1, half);
-  products[1] = strassenMultiply(temp1, B11, half);
+  AddMatrix(a21, a22, temp1, half);
+  products[1] = StrassenMultiply(temp1, b11, half);
 
-  subtractMatrix(B12, B22, temp1, half);
-  products[2] = strassenMultiply(A11, temp1, half);
+  SubtractMatrix(b12, b22, temp1, half);
+  products[2] = StrassenMultiply(a11, temp1, half);
 
-  subtractMatrix(B21, B11, temp1, half);
-  products[3] = strassenMultiply(A22, temp1, half);
+  SubtractMatrix(b21, b11, temp1, half);
+  products[3] = StrassenMultiply(a22, temp1, half);
 
-  addMatrix(A11, A12, temp1, half);
-  products[4] = strassenMultiply(temp1, B22, half);
+  AddMatrix(a11, a12, temp1, half);
+  products[4] = StrassenMultiply(temp1, b22, half);
 
-  subtractMatrix(A21, A11, temp1, half);
-  addMatrix(B11, B12, temp2, half);
-  products[5] = strassenMultiply(temp1, temp2, half);
+  SubtractMatrix(a21, a11, temp1, half);
+  AddMatrix(b11, b12, temp2, half);
+  products[5] = StrassenMultiply(temp1, temp2, half);
 
-  subtractMatrix(A12, A22, temp1, half);
-  addMatrix(B21, B22, temp2, half);
-  products[6] = strassenMultiply(temp1, temp2, half);
+  SubtractMatrix(a12, a22, temp1, half);
+  AddMatrix(b21, b22, temp2, half);
+  products[6] = StrassenMultiply(temp1, temp2, half);
 
   return products;
 }
 
-void IlinAStrassenAlgorithmSEQ::computeResultSubmatrices(const std::vector<std::vector<double>> &products,
-                                                         std::vector<double> &C11, std::vector<double> &C12,
-                                                         std::vector<double> &C21, std::vector<double> &C22, int half) {
-  const auto &P1 = products[0];
-  const auto &P2 = products[1];
-  const auto &P3 = products[2];
-  const auto &P4 = products[3];
-  const auto &P5 = products[4];
-  const auto &P6 = products[5];
-  const auto &P7 = products[6];
+void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::vector<double>> &products,
+                                                         std::vector<double> &c11, std::vector<double> &c12,
+                                                         std::vector<double> &c21, std::vector<double> &c22, int half) {
+  const auto &p1 = products[0];
+  const auto &p2 = products[1];
+  const auto &p3 = products[2];
+  const auto &p4 = products[3];
+  const auto &p5 = products[4];
+  const auto &p6 = products[5];
+  const auto &p7 = products[6];
 
-  addMatrix(P1, P4, C11, half);
-  subtractMatrix(C11, P5, C11, half);
-  addMatrix(C11, P7, C11, half);
+  AddMatrix(p1, p4, c11, half);
+  SubtractMatrix(c11, p5, c11, half);
+  AddMatrix(c11, p7, c11, half);
 
-  addMatrix(P3, P5, C12, half);
+  AddMatrix(p3, p5, c12, half);
 
-  addMatrix(P2, P4, C21, half);
+  AddMatrix(p2, p4, c21, half);
 
-  addMatrix(P1, P3, C22, half);
-  subtractMatrix(C22, P2, C22, half);
-  addMatrix(C22, P6, C22, half);
+  AddMatrix(p1, p3, c22, half);
+  SubtractMatrix(c22, p2, c22, half);
+  AddMatrix(c22, p6, c22, half);
 }
 
-std::vector<double> IlinAStrassenAlgorithmSEQ::strassenMultiply(const std::vector<double> &A,
-                                                                const std::vector<double> &B, int n) {
-  if (n <= 64) {
-    return naiveMultiply(A, B, n);
+std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
+                                                                const std::vector<double> &b, int n) {
+  if (n <= kThreshold_) {
+    return NaiveMultiply(a, b, n);
   }
 
   int half = n / 2;
 
-  std::vector<double> A11(half * half), A12(half * half), A21(half * half), A22(half * half);
-  std::vector<double> B11(half * half), B12(half * half), B21(half * half), B22(half * half);
+  std::vector<double> a11(half * half), a12(half * half), a21(half * half), a22(half * half);
+  std::vector<double> b11(half * half), b12(half * half), b21(half * half), b22(half * half);
 
-  splitMatrix(A, A11, A12, A21, A22, n);
-  splitMatrix(B, B11, B12, B21, B22, n);
+  SplitMatrix(a, a11, a12, a21, a22, n);
+  SplitMatrix(b, b11, b12, b21, b22, n);
 
-  auto products = computeStrassenProducts(A11, A12, A21, A22, B11, B12, B21, B22, half);
+  auto products = ComputeStrassenProducts(a11, a12, a21, a22, b11, b12, b21, b22, half);
 
-  std::vector<double> C11(half * half), C12(half * half), C21(half * half), C22(half * half);
+  std::vector<double> c11(half * half), c12(half * half), c21(half * half), c22(half * half);
 
-  computeResultSubmatrices(products, C11, C12, C21, C22, half);
+  ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
 
-  std::vector<double> C(n * n);
-  joinMatrix(C, C11, C12, C21, C22, n);
+  std::vector<double> c(n * n);
+  JoinMatrix(c, c11, c12, c21, c22, n);
 
-  return C;
+  return c;
 }
 
 bool IlinAStrassenAlgorithmSEQ::RunImpl() {
@@ -157,26 +157,26 @@ bool IlinAStrassenAlgorithmSEQ::RunImpl() {
 
   int n = input.size;
 
-  if (n <= 64) {
-    output.C = naiveMultiply(input.A, input.B, n);
+  if (n <= kThreshold_) {
+    output.C = NaiveMultiply(input.A, input.B, n);
     output.size = n;
   } else {
-    std::vector<double> A_padded(padded_size_ * padded_size_, 0.0);
-    std::vector<double> B_padded(padded_size_ * padded_size_, 0.0);
+    std::vector<double> a_padded(padded_size_ * padded_size_, 0.0);
+    std::vector<double> b_padded(padded_size_ * padded_size_, 0.0);
 
     for (int i = 0; i < original_size_; ++i) {
       for (int j = 0; j < original_size_; ++j) {
-        A_padded[i * padded_size_ + j] = input.A[i * n + j];
-        B_padded[i * padded_size_ + j] = input.B[i * n + j];
+        a_padded[i * padded_size_ + j] = input.A[i * n + j];
+        b_padded[i * padded_size_ + j] = input.B[i * n + j];
       }
     }
 
-    std::vector<double> C_padded = strassenMultiply(A_padded, B_padded, padded_size_);
+    std::vector<double> c_padded = StrassenMultiply(a_padded, b_padded, padded_size_);
 
     output.C.resize(n * n);
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
-        output.C[i * n + j] = C_padded[i * padded_size_ + j];
+        output.C[i * n + j] = c_padded[i * padded_size_ + j];
       }
     }
     output.size = n;
@@ -189,44 +189,44 @@ bool IlinAStrassenAlgorithmSEQ::PostProcessingImpl() {
   return true;
 }
 
-void IlinAStrassenAlgorithmSEQ::addMatrix(const std::vector<double> &A, const std::vector<double> &B,
-                                          std::vector<double> &C, int n) {
+void IlinAStrassenAlgorithmSEQ::AddMatrix(const std::vector<double> &a, const std::vector<double> &b,
+                                          std::vector<double> &c, int n) {
   for (int i = 0; i < n * n; ++i) {
-    C[i] = A[i] + B[i];
+    c[i] = a[i] + b[i];
   }
 }
 
-void IlinAStrassenAlgorithmSEQ::subtractMatrix(const std::vector<double> &A, const std::vector<double> &B,
-                                               std::vector<double> &C, int n) {
+void IlinAStrassenAlgorithmSEQ::SubtractMatrix(const std::vector<double> &a, const std::vector<double> &b,
+                                               std::vector<double> &c, int n) {
   for (int i = 0; i < n * n; ++i) {
-    C[i] = A[i] - B[i];
+    c[i] = a[i] - b[i];
   }
 }
 
-void IlinAStrassenAlgorithmSEQ::splitMatrix(const std::vector<double> &A, std::vector<double> &A11,
-                                            std::vector<double> &A12, std::vector<double> &A21,
-                                            std::vector<double> &A22, int n) {
+void IlinAStrassenAlgorithmSEQ::SplitMatrix(const std::vector<double> &a, std::vector<double> &a11,
+                                            std::vector<double> &a12, std::vector<double> &a21,
+                                            std::vector<double> &a22, int n) {
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      A11[i * half + j] = A[i * n + j];
-      A12[i * half + j] = A[i * n + (j + half)];
-      A21[i * half + j] = A[(i + half) * n + j];
-      A22[i * half + j] = A[(i + half) * n + (j + half)];
+      a11[i * half + j] = a[i * n + j];
+      a12[i * half + j] = a[i * n + (j + half)];
+      a21[i * half + j] = a[(i + half) * n + j];
+      a22[i * half + j] = a[(i + half) * n + (j + half)];
     }
   }
 }
 
-void IlinAStrassenAlgorithmSEQ::joinMatrix(std::vector<double> &A, const std::vector<double> &A11,
-                                           const std::vector<double> &A12, const std::vector<double> &A21,
-                                           const std::vector<double> &A22, int n) {
+void IlinAStrassenAlgorithmSEQ::JoinMatrix(std::vector<double> &a, const std::vector<double> &a11,
+                                           const std::vector<double> &a12, const std::vector<double> &a21,
+                                           const std::vector<double> &a22, int n) {
   int half = n / 2;
   for (int i = 0; i < half; ++i) {
     for (int j = 0; j < half; ++j) {
-      A[i * n + j] = A11[i * half + j];
-      A[i * n + (j + half)] = A12[i * half + j];
-      A[(i + half) * n + j] = A21[i * half + j];
-      A[(i + half) * n + (j + half)] = A22[i * half + j];
+      a[i * n + j] = a11[i * half + j];
+      a[i * n + (j + half)] = a12[i * half + j];
+      a[(i + half) * n + j] = a21[i * half + j];
+      a[(i + half) * n + (j + half)] = a22[i * half + j];
     }
   }
 }
