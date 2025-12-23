@@ -149,8 +149,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vecto
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vector<double> &a,
-                                                                  const std::vector<double> &b,
-                                                                  int n) {  // NOLINT(misc-no-recursion)
+                                                                  const std::vector<double> &b, int n) {
+  // NOLINTBEGIN(misc-no-recursion)
   if (n <= kThreshold) {
     return NaiveMultiplySeq(a, b, n);
   }
@@ -225,6 +225,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
+  // NOLINTEND(misc-no-recursion)
 }
 
 std::tuple<int, int> IlinAStrassenAlgorithmMPI::CalculateMatrixRange(int total_matrices) const {
@@ -251,7 +252,7 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
                                                      const std::vector<double> &a22, const std::vector<double> &b11,
                                                      const std::vector<double> &b12, const std::vector<double> &b21,
                                                      const std::vector<double> &b22, int half,
-                                                     std::vector<double> &result) {  // NOLINT(misc-no-recursion)
+                                                     std::vector<double> &result) {
   std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
   std::vector<double> temp1(half_sq);
   std::vector<double> temp2(half_sq);
@@ -260,33 +261,33 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
     case 0:
       AddMatrix(a11, a22, temp1, half);
       AddMatrix(b11, b22, temp2, half);
-      result = ParallelStrassenRecursive(temp1, temp2, half);
+      result = ParallelStrassenRecursive(temp1, temp2, half);  // NOLINT(misc-no-recursion)
       break;
     case 1:
       AddMatrix(a21, a22, temp1, half);
-      result = ParallelStrassenRecursive(temp1, b11, half);
+      result = ParallelStrassenRecursive(temp1, b11, half);  // NOLINT(misc-no-recursion)
       break;
     case 2:
       SubtractMatrix(b12, b22, temp1, half);
-      result = ParallelStrassenRecursive(a11, temp1, half);
+      result = ParallelStrassenRecursive(a11, temp1, half);  // NOLINT(misc-no-recursion)
       break;
     case 3:
       SubtractMatrix(b21, b11, temp1, half);
-      result = ParallelStrassenRecursive(a22, temp1, half);
+      result = ParallelStrassenRecursive(a22, temp1, half);  // NOLINT(misc-no-recursion)
       break;
     case 4:
       AddMatrix(a11, a12, temp1, half);
-      result = ParallelStrassenRecursive(temp1, b22, half);
+      result = ParallelStrassenRecursive(temp1, b22, half);  // NOLINT(misc-no-recursion)
       break;
     case 5:
       SubtractMatrix(a21, a11, temp1, half);
       AddMatrix(b11, b12, temp2, half);
-      result = ParallelStrassenRecursive(temp1, temp2, half);
+      result = ParallelStrassenRecursive(temp1, temp2, half);  // NOLINT(misc-no-recursion)
       break;
     case 6:
       SubtractMatrix(a12, a22, temp1, half);
       AddMatrix(b21, b22, temp2, half);
-      result = ParallelStrassenRecursive(temp1, temp2, half);
+      result = ParallelStrassenRecursive(temp1, temp2, half);  // NOLINT(misc-no-recursion)
       break;
     default:
       result = std::vector<double>(half_sq);
@@ -341,8 +342,8 @@ void IlinAStrassenAlgorithmMPI::ComputeResultFromProducts(const std::vector<doub
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const std::vector<double> &a,
-                                                                         const std::vector<double> &b,
-                                                                         int n) {  // NOLINT(misc-no-recursion)
+                                                                         const std::vector<double> &b, int n) {
+  // NOLINTBEGIN(misc-no-recursion)
   if (n <= kThreshold) {
     return StrassenSequential(a, b, n);
   }
@@ -458,6 +459,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const s
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
+  // NOLINTEND(misc-no-recursion)
 }
 
 std::tuple<int, int, int> IlinAStrassenAlgorithmMPI::CalculateRowDistribution(int n) const {

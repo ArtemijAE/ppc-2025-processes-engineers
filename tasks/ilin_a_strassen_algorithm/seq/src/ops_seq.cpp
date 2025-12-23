@@ -65,34 +65,34 @@ std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<d
 std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::ComputeStrassenProducts(
     const std::vector<double> &a11, const std::vector<double> &a12, const std::vector<double> &a21,
     const std::vector<double> &a22, const std::vector<double> &b11, const std::vector<double> &b12,
-    const std::vector<double> &b21, const std::vector<double> &b22, int half) {  // NOLINT(misc-no-recursion)
+    const std::vector<double> &b21, const std::vector<double> &b22, int half) {
   std::vector<std::vector<double>> products(7);
   std::vector<double> temp1(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
   std::vector<double> temp2(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
 
   AddMatrix(a11, a22, temp1, half);
   AddMatrix(b11, b22, temp2, half);
-  products[0] = StrassenMultiply(temp1, temp2, half);
+  products[0] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
 
   AddMatrix(a21, a22, temp1, half);
-  products[1] = StrassenMultiply(temp1, b11, half);
+  products[1] = StrassenMultiply(temp1, b11, half);  // NOLINT(misc-no-recursion)
 
   SubtractMatrix(b12, b22, temp1, half);
-  products[2] = StrassenMultiply(a11, temp1, half);
+  products[2] = StrassenMultiply(a11, temp1, half);  // NOLINT(misc-no-recursion)
 
   SubtractMatrix(b21, b11, temp1, half);
-  products[3] = StrassenMultiply(a22, temp1, half);
+  products[3] = StrassenMultiply(a22, temp1, half);  // NOLINT(misc-no-recursion)
 
   AddMatrix(a11, a12, temp1, half);
-  products[4] = StrassenMultiply(temp1, b22, half);
+  products[4] = StrassenMultiply(temp1, b22, half);  // NOLINT(misc-no-recursion)
 
   SubtractMatrix(a21, a11, temp1, half);
   AddMatrix(b11, b12, temp2, half);
-  products[5] = StrassenMultiply(temp1, temp2, half);
+  products[5] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
 
   SubtractMatrix(a12, a22, temp1, half);
   AddMatrix(b21, b22, temp2, half);
-  products[6] = StrassenMultiply(temp1, temp2, half);
+  products[6] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
 
   return products;
 }
@@ -122,8 +122,8 @@ void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::
 }
 
 std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
-                                                                const std::vector<double> &b,
-                                                                int n) {  // NOLINT(misc-no-recursion)
+                                                                const std::vector<double> &b, int n) {
+  // NOLINTBEGIN(misc-no-recursion)
   if (n <= kThreshold) {
     return NaiveMultiply(a, b, n);
   }
@@ -156,6 +156,7 @@ std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vecto
   JoinMatrix(c, c11, c12, c21, c22, n);
 
   return c;
+  // NOLINTEND(misc-no-recursion)
 }
 
 bool IlinAStrassenAlgorithmSEQ::RunImpl() {
