@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <tuple>
 #include <vector>
 
@@ -148,7 +149,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vecto
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vector<double> &a,
-                                                                  const std::vector<double> &b, int n) {
+                                                                  const std::vector<double> &b,
+                                                                  int n) {  // NOLINT(misc-no-recursion)
   if (n <= kThreshold) {
     return NaiveMultiplySeq(a, b, n);
   }
@@ -249,7 +251,7 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
                                                      const std::vector<double> &a22, const std::vector<double> &b11,
                                                      const std::vector<double> &b12, const std::vector<double> &b21,
                                                      const std::vector<double> &b22, int half,
-                                                     std::vector<double> &result) {
+                                                     std::vector<double> &result) {  // NOLINT(misc-no-recursion)
   std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
   std::vector<double> temp1(half_sq);
   std::vector<double> temp2(half_sq);
@@ -339,7 +341,8 @@ void IlinAStrassenAlgorithmMPI::ComputeResultFromProducts(const std::vector<doub
 }
 
 std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenRecursive(const std::vector<double> &a,
-                                                                         const std::vector<double> &b, int n) {
+                                                                         const std::vector<double> &b,
+                                                                         int n) {  // NOLINT(misc-no-recursion)
   if (n <= kThreshold) {
     return StrassenSequential(a, b, n);
   }

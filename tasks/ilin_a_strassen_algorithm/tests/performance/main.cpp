@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <random>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"

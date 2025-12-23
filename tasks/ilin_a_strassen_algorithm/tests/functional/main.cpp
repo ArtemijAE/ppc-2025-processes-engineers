@@ -23,8 +23,10 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
  protected:
   void SetUp() override {
-    auto params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
-    matrix_size_ = std::get<0>(params);
+    auto test_param_tuple = GetParam();
+
+    const auto &test_param = std::get<TestType>(test_param_tuple);
+    matrix_size_ = std::get<0>(test_param);
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -34,7 +36,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     input_data_.B.resize(static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_));
     input_data_.size = matrix_size_;
 
-    gen.seed(static_cast<std::mt19937::result_type>(42 + matrix_size_));
+    gen.seed(static_cast<unsigned int>(42 + matrix_size_));
 
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
       input_data_.A[static_cast<std::size_t>(i)] = dist(gen);
@@ -56,10 +58,12 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       for (int j = 0; j < matrix_size_; ++j) {
         double sum = 0.0;
         for (int k = 0; k < matrix_size_; ++k) {
-          sum += input_data_.A[static_cast<std::size_t>((i * matrix_size_) + k)] *
-                 input_data_.B[static_cast<std::size_t>((k * matrix_size_) + j)];
+          const int idx_a = (i * matrix_size_) + k;
+          const int idx_b = (k * matrix_size_) + j;
+          sum += input_data_.A[static_cast<std::size_t>(idx_a)] * input_data_.B[static_cast<std::size_t>(idx_b)];
         }
-        reference[static_cast<std::size_t>((i * matrix_size_) + j)] = sum;
+        const int idx_ref = (i * matrix_size_) + j;
+        reference[static_cast<std::size_t>(idx_ref)] = sum;
       }
     }
 

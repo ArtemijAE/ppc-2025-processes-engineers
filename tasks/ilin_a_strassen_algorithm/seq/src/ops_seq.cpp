@@ -1,6 +1,7 @@
 #include "ilin_a_strassen_algorithm/seq/include/ops_seq.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
@@ -64,7 +65,7 @@ std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<d
 std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::ComputeStrassenProducts(
     const std::vector<double> &a11, const std::vector<double> &a12, const std::vector<double> &a21,
     const std::vector<double> &a22, const std::vector<double> &b11, const std::vector<double> &b12,
-    const std::vector<double> &b21, const std::vector<double> &b22, int half) {
+    const std::vector<double> &b21, const std::vector<double> &b22, int half) {  // NOLINT(misc-no-recursion)
   std::vector<std::vector<double>> products(7);
   std::vector<double> temp1(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
   std::vector<double> temp2(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
@@ -121,7 +122,8 @@ void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::
 }
 
 std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
-                                                                const std::vector<double> &b, int n) {
+                                                                const std::vector<double> &b,
+                                                                int n) {  // NOLINT(misc-no-recursion)
   if (n <= kThreshold) {
     return NaiveMultiply(a, b, n);
   }
