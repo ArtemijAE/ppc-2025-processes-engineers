@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <tuple>
 #include <vector>
 
@@ -12,8 +11,7 @@
 
 namespace ilin_a_strassen_algorithm {
 
-IlinAStrassenAlgorithmMPI::IlinAStrassenAlgorithmMPI(const InType &in)
-    : world_size_(0), world_rank_(0), original_size_(0), padded_size_(0) {
+IlinAStrassenAlgorithmMPI::IlinAStrassenAlgorithmMPI(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput().size = 0;
@@ -36,10 +34,10 @@ bool IlinAStrassenAlgorithmMPI::ValidationImpl() {
     if (input.size <= 0) {
       validation_result = 0;
     }
-    if (input.A.size() != static_cast<std::size_t>(input.size * input.size)) {
+    if (input.A.size() != static_cast<std::size_t>(input.size) * static_cast<std::size_t>(input.size)) {
       validation_result = 0;
     }
-    if (input.B.size() != static_cast<std::size_t>(input.size * input.size)) {
+    if (input.B.size() != static_cast<std::size_t>(input.size) * static_cast<std::size_t>(input.size)) {
       validation_result = 0;
     }
 
@@ -48,25 +46,25 @@ bool IlinAStrassenAlgorithmMPI::ValidationImpl() {
     if (validation_result != 0) {
       MPI_Bcast(&size_to_bcast, 1, MPI_INT, 0, MPI_COMM_WORLD);
       return true;
-    } else {
-      int error_size = -1;
-      MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-      return false;
     }
-  } else {
-    int validation_result = 0;
-    MPI_Bcast(&validation_result, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    if (validation_result != 0) {
-      int size = 0;
-      MPI_Bcast(&size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-      return size > 0;
-    } else {
-      int error_size = 0;
-      MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-      return false;
-    }
+    int error_size = -1;
+    MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    return false;
   }
+
+  int validation_result = 0;
+  MPI_Bcast(&validation_result, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  if (validation_result != 0) {
+    int size = 0;
+    MPI_Bcast(&size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    return size > 0;
+  }
+
+  int error_size = 0;
+  MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  return false;
 }
 
 bool IlinAStrassenAlgorithmMPI::PreProcessingImpl() {
@@ -591,9 +589,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::MultiplyMatrices(const std::vecto
                                                                 const std::vector<double> &b, int n) {
   if (n <= kThreshold) {
     return DistributedNaiveMultiply(a, b, n);
-  } else {
-    return ParallelStrassen(a, b, n);
   }
+  return ParallelStrassen(a, b, n);
 }
 
 void IlinAStrassenAlgorithmMPI::PrepareSmallMatricesCase(std::vector<double> &a_full, std::vector<double> &b_full,

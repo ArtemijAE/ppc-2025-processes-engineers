@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <tuple>
 #include <vector>
 
@@ -52,9 +51,10 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   static std::vector<double> ComputeLocalRows(const std::vector<double> &a, const std::vector<double> &b, int n,
                                               int start_row, int local_rows);
   void SetupGatherParameters(int n, std::vector<int> &recvcounts, std::vector<int> &displs) const;
-  std::vector<double> GatherLocalResults(const std::vector<double> &local_result, int n,
-                                         const std::vector<int> &recvcounts, const std::vector<int> &displs) const;
-  std::vector<double> ReorderGatheredResults(const std::vector<double> &gathered_data, int n) const;
+  [[nodiscard]] std::vector<double> GatherLocalResults(const std::vector<double> &local_result, int n,
+                                                       const std::vector<int> &recvcounts,
+                                                       const std::vector<int> &displs) const;
+  [[nodiscard]] std::vector<double> ReorderGatheredResults(const std::vector<double> &gathered_data, int n) const;
   void PrepareSmallMatricesCase(std::vector<double> &a_full, std::vector<double> &b_full,
                                 std::vector<double> &final_result);
   void PrepareLargeMatricesCase(std::vector<double> &a_full, std::vector<double> &b_full,

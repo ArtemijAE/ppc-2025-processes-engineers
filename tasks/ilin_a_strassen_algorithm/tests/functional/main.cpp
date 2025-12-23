@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <random>
 #include <string>
@@ -33,7 +34,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
     input_data_.B.resize(static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_));
     input_data_.size = matrix_size_;
 
-    gen.seed(static_cast<unsigned int>(42 + matrix_size_));
+    gen.seed(static_cast<std::mt19937::result_type>(42 + matrix_size_));
 
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
       input_data_.A[static_cast<std::size_t>(i)] = dist(gen);
@@ -46,11 +47,11 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
       return false;
     }
 
-    if (output_data.C.size() != static_cast<std::size_t>(matrix_size_ * matrix_size_)) {
+    if (output_data.C.size() != static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_)) {
       return false;
     }
 
-    std::vector<double> reference(static_cast<std::size_t>(matrix_size_ * matrix_size_), 0.0);
+    std::vector<double> reference(static_cast<std::size_t>(matrix_size_) * static_cast<std::size_t>(matrix_size_), 0.0);
     for (int i = 0; i < matrix_size_; ++i) {
       for (int j = 0; j < matrix_size_; ++j) {
         double sum = 0.0;
@@ -64,7 +65,7 @@ class IlinARunFuncTestsProcesses : public ppc::util::BaseRunFuncTests<InType, Ou
 
     const double tolerance = 1e-6;
     for (int i = 0; i < matrix_size_ * matrix_size_; ++i) {
-      if (std::abs(output_data.C[static_cast<std::size_t>(i)] - reference[static_cast<std::size_t>(i)]) > tolerance) {
+      if (std::fabs(output_data.C[static_cast<std::size_t>(i)] - reference[static_cast<std::size_t>(i)]) > tolerance) {
         return false;
       }
     }

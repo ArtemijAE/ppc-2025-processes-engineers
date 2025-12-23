@@ -7,7 +7,7 @@
 
 namespace ilin_a_strassen_algorithm {
 
-IlinAStrassenAlgorithmSEQ::IlinAStrassenAlgorithmSEQ(const InType &in) : original_size_(0), padded_size_(0) {
+IlinAStrassenAlgorithmSEQ::IlinAStrassenAlgorithmSEQ(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput().size = 0;
@@ -23,10 +23,10 @@ bool IlinAStrassenAlgorithmSEQ::ValidationImpl() {
   if (input.size <= 0) {
     return false;
   }
-  if (input.A.size() != static_cast<std::size_t>(input.size * input.size)) {
+  if (input.A.size() != static_cast<std::size_t>(input.size) * static_cast<std::size_t>(input.size)) {
     return false;
   }
-  if (input.B.size() != static_cast<std::size_t>(input.size * input.size)) {
+  if (input.B.size() != static_cast<std::size_t>(input.size) * static_cast<std::size_t>(input.size)) {
     return false;
   }
 

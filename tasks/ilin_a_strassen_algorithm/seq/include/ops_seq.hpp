@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstddef>
-#include <tuple>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
