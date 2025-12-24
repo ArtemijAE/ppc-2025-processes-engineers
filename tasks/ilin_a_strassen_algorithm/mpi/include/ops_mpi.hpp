@@ -25,7 +25,7 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   std::vector<double> DistributedNaiveMultiply(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> ParallelStrassen(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> ParallelStrassenIterative(const std::vector<double> &a, const std::vector<double> &b, int n);
-  std::vector<double> StrassenSequential(const std::vector<double> &a, const std::vector<double> &b, int n);
+  static std::vector<double> StrassenSequential(const std::vector<double> &a, const std::vector<double> &b, int n);
   static std::vector<double> NaiveMultiplySeq(const std::vector<double> &a, const std::vector<double> &b, int n);
   static void AddMatrix(const std::vector<double> &a, const std::vector<double> &b, std::vector<double> &c, int n);
   static void SubtractMatrix(const std::vector<double> &a, const std::vector<double> &b, std::vector<double> &c, int n);
@@ -34,11 +34,11 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   static void JoinMatrix(std::vector<double> &a, const std::vector<double> &a11, const std::vector<double> &a12,
                          const std::vector<double> &a21, const std::vector<double> &a22, int n);
   [[nodiscard]] std::tuple<int, int> CalculateMatrixRange(int total_matrices) const;
-  void ComputeSingleProduct(int product_idx, const std::vector<double> &a11, const std::vector<double> &a12,
-                            const std::vector<double> &a21, const std::vector<double> &a22,
-                            const std::vector<double> &b11, const std::vector<double> &b12,
-                            const std::vector<double> &b21, const std::vector<double> &b22, int half,
-                            std::vector<double> &result);
+  static void ComputeSingleProduct(int product_idx, const std::vector<double> &a11, const std::vector<double> &a12,
+                                   const std::vector<double> &a21, const std::vector<double> &a22,
+                                   const std::vector<double> &b11, const std::vector<double> &b12,
+                                   const std::vector<double> &b21, const std::vector<double> &b22, int half,
+                                   std::vector<double> &result);
   void GatherProductMatrix(const std::vector<double> &local_product, std::vector<double> &buffer) const;
   static void MergeProductFromBuffer(const std::vector<double> &buffer, int proc_count, int matrix_size,
                                      std::vector<double> &product);

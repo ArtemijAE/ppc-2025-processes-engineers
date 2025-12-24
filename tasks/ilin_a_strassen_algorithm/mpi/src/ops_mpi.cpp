@@ -150,6 +150,10 @@ std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vecto
 
 std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vector<double> &a,
                                                                   const std::vector<double> &b, int n) {
+  if (n <= kThreshold) {
+    return NaiveMultiplySeq(a, b, n);
+  }
+
   struct MatrixTask {
     std::vector<double> a;
     std::vector<double> b;
@@ -159,9 +163,9 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
   };
 
   std::vector<MatrixTask> stack;
-  stack.push_back({a, b, {}, n, 0});
-
   std::vector<MatrixTask> results;
+
+  stack.push_back({a, b, {}, n, 0});
 
   while (!stack.empty()) {
     MatrixTask current = stack.back();
@@ -171,53 +175,54 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
       if (current.size <= kThreshold) {
         current.result = NaiveMultiplySeq(current.a, current.b, current.size);
         results.push_back(current);
-      } else {
-        int half = current.size / 2;
-        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
-
-        std::vector<double> a11(half_sq);
-        std::vector<double> a12(half_sq);
-        std::vector<double> a21(half_sq);
-        std::vector<double> a22(half_sq);
-        std::vector<double> b11(half_sq);
-        std::vector<double> b12(half_sq);
-        std::vector<double> b21(half_sq);
-        std::vector<double> b22(half_sq);
-
-        SplitMatrix(current.a, a11, a12, a21, a22, current.size);
-        SplitMatrix(current.b, b11, b12, b21, b22, current.size);
-
-        std::vector<double> temp1(half_sq);
-        std::vector<double> temp2(half_sq);
-
-        AddMatrix(a11, a22, temp1, half);
-        AddMatrix(b11, b22, temp2, half);
-        stack.push_back({temp1, temp2, {}, half, 0});
-
-        AddMatrix(a21, a22, temp1, half);
-        stack.push_back({temp1, b11, {}, half, 0});
-
-        SubtractMatrix(b12, b22, temp1, half);
-        stack.push_back({a11, temp1, {}, half, 0});
-
-        SubtractMatrix(b21, b11, temp1, half);
-        stack.push_back({a22, temp1, {}, half, 0});
-
-        AddMatrix(a11, a12, temp1, half);
-        stack.push_back({temp1, b22, {}, half, 0});
-
-        SubtractMatrix(a21, a11, temp1, half);
-        AddMatrix(b11, b12, temp2, half);
-        stack.push_back({temp1, temp2, {}, half, 0});
-
-        SubtractMatrix(a12, a22, temp1, half);
-        AddMatrix(b21, b22, temp2, half);
-        stack.push_back({temp1, temp2, {}, half, 0});
-
-        current.stage = 1;
-        stack.push_back(current);
+        continue;
       }
-    } else if (current.stage == 1) {
+
+      int half = current.size / 2;
+      std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+
+      std::vector<double> a11(half_sq);
+      std::vector<double> a12(half_sq);
+      std::vector<double> a21(half_sq);
+      std::vector<double> a22(half_sq);
+      std::vector<double> b11(half_sq);
+      std::vector<double> b12(half_sq);
+      std::vector<double> b21(half_sq);
+      std::vector<double> b22(half_sq);
+
+      SplitMatrix(current.a, a11, a12, a21, a22, current.size);
+      SplitMatrix(current.b, b11, b12, b21, b22, current.size);
+
+      std::vector<double> temp1(half_sq);
+      std::vector<double> temp2(half_sq);
+
+      AddMatrix(a11, a22, temp1, half);
+      AddMatrix(b11, b22, temp2, half);
+      stack.push_back({temp1, temp2, {}, half, 0});
+
+      AddMatrix(a21, a22, temp1, half);
+      stack.push_back({temp1, b11, {}, half, 0});
+
+      SubtractMatrix(b12, b22, temp1, half);
+      stack.push_back({a11, temp1, {}, half, 0});
+
+      SubtractMatrix(b21, b11, temp1, half);
+      stack.push_back({a22, temp1, {}, half, 0});
+
+      AddMatrix(a11, a12, temp1, half);
+      stack.push_back({temp1, b22, {}, half, 0});
+
+      SubtractMatrix(a21, a11, temp1, half);
+      AddMatrix(b11, b12, temp2, half);
+      stack.push_back({temp1, temp2, {}, half, 0});
+
+      SubtractMatrix(a12, a22, temp1, half);
+      AddMatrix(b21, b22, temp2, half);
+      stack.push_back({temp1, temp2, {}, half, 0});
+
+      current.stage = 1;
+      stack.push_back(current);
+    } else {
       if (results.size() >= 7) {
         std::vector<std::vector<double>> products(7);
         for (int i = 0; i < 7; ++i) {
@@ -238,8 +243,11 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
 
         std::vector<double> c(static_cast<std::size_t>(current.size) * static_cast<std::size_t>(current.size));
         JoinMatrix(c, c11, c12, c21, c22, current.size);
-        current.result = c;
-        results.push_back(current);
+
+        if (current.size == n) {
+          return c;
+        }
+        results.push_back({current.a, current.b, c, current.size, 2});
       } else {
         stack.push_back(current);
       }
@@ -250,7 +258,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
     return results.back().result;
   }
 
-  return std::vector<double>();
+  return {};
 }
 
 std::tuple<int, int> IlinAStrassenAlgorithmMPI::CalculateMatrixRange(int total_matrices) const {
@@ -286,33 +294,33 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
     case 0:
       AddMatrix(a11, a22, temp1, half);
       AddMatrix(b11, b22, temp2, half);
-      result = ParallelStrassenIterative(temp1, temp2, half);
+      result = StrassenSequential(temp1, temp2, half);
       break;
     case 1:
       AddMatrix(a21, a22, temp1, half);
-      result = ParallelStrassenIterative(temp1, b11, half);
+      result = StrassenSequential(temp1, b11, half);
       break;
     case 2:
       SubtractMatrix(b12, b22, temp1, half);
-      result = ParallelStrassenIterative(a11, temp1, half);
+      result = StrassenSequential(a11, temp1, half);
       break;
     case 3:
       SubtractMatrix(b21, b11, temp1, half);
-      result = ParallelStrassenIterative(a22, temp1, half);
+      result = StrassenSequential(a22, temp1, half);
       break;
     case 4:
       AddMatrix(a11, a12, temp1, half);
-      result = ParallelStrassenIterative(temp1, b22, half);
+      result = StrassenSequential(temp1, b22, half);
       break;
     case 5:
       SubtractMatrix(a21, a11, temp1, half);
       AddMatrix(b11, b12, temp2, half);
-      result = ParallelStrassenIterative(temp1, temp2, half);
+      result = StrassenSequential(temp1, temp2, half);
       break;
     case 6:
       SubtractMatrix(a12, a22, temp1, half);
       AddMatrix(b21, b22, temp2, half);
-      result = ParallelStrassenIterative(temp1, temp2, half);
+      result = StrassenSequential(temp1, temp2, half);
       break;
     default:
       result = std::vector<double>(half_sq);
@@ -398,27 +406,35 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenIterative(const s
   auto [start_matrix, end_matrix] = CalculateMatrixRange(7);
 
   for (int matrix_idx = start_matrix; matrix_idx < end_matrix; matrix_idx++) {
+    std::vector<double> result;
     switch (matrix_idx) {
       case 0:
-        ComputeSingleProduct(0, a11, a12, a21, a22, b11, b12, b21, b22, half, p1);
+        ComputeSingleProduct(0, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p1 = std::move(result);
         break;
       case 1:
-        ComputeSingleProduct(1, a11, a12, a21, a22, b11, b12, b21, b22, half, p2);
+        ComputeSingleProduct(1, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p2 = std::move(result);
         break;
       case 2:
-        ComputeSingleProduct(2, a11, a12, a21, a22, b11, b12, b21, b22, half, p3);
+        ComputeSingleProduct(2, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p3 = std::move(result);
         break;
       case 3:
-        ComputeSingleProduct(3, a11, a12, a21, a22, b11, b12, b21, b22, half, p4);
+        ComputeSingleProduct(3, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p4 = std::move(result);
         break;
       case 4:
-        ComputeSingleProduct(4, a11, a12, a21, a22, b11, b12, b21, b22, half, p5);
+        ComputeSingleProduct(4, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p5 = std::move(result);
         break;
       case 5:
-        ComputeSingleProduct(5, a11, a12, a21, a22, b11, b12, b21, b22, half, p6);
+        ComputeSingleProduct(5, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p6 = std::move(result);
         break;
       case 6:
-        ComputeSingleProduct(6, a11, a12, a21, a22, b11, b12, b21, b22, half, p7);
+        ComputeSingleProduct(6, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+        p7 = std::move(result);
         break;
       default:
         break;

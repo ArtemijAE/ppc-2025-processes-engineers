@@ -62,202 +62,6 @@ std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<d
   return c;
 }
 
-std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
-                                                                const std::vector<double> &b, int n) {
-  if (n <= kThreshold) {
-    return NaiveMultiply(a, b, n);
-  }
-
-  struct Task {
-    std::vector<double> a;
-    std::vector<double> b;
-    std::vector<double> result;
-    int size;
-    int stage;  // 0: need to process, 1: waiting for children, 2: ready
-    int parent_id;
-    int completed_children;
-  };
-
-  std::vector<Task> tasks;
-  std::vector<int> ready_queue;
-
-  tasks.push_back({a, b, {}, n, 0, -1, 0});
-  ready_queue.push_back(0);
-
-  int iteration = 0;
-  const int max_iterations = 10000;
-
-  while (!ready_queue.empty()) {
-    iteration++;
-    if (iteration > max_iterations) {
-      break;
-    }
-
-    int task_id = ready_queue.back();
-    ready_queue.pop_back();
-
-    Task &current = tasks[task_id];
-
-    if (current.stage == 0) {
-      if (current.size <= kThreshold) {
-        current.result = NaiveMultiply(current.a, current.b, current.size);
-        current.stage = 2;
-
-        if (current.parent_id != -1) {
-          tasks[current.parent_id].completed_children++;
-          if (tasks[current.parent_id].completed_children == 7) {
-            ready_queue.push_back(current.parent_id);
-          }
-        } else {
-          return current.result;
-        }
-      } else {
-        current.stage = 1;
-        current.completed_children = 0;
-
-        int half = current.size / 2;
-        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
-
-        std::vector<double> a11(half_sq);
-        std::vector<double> a12(half_sq);
-        std::vector<double> a21(half_sq);
-        std::vector<double> a22(half_sq);
-        std::vector<double> b11(half_sq);
-        std::vector<double> b12(half_sq);
-        std::vector<double> b21(half_sq);
-        std::vector<double> b22(half_sq);
-
-        SplitMatrix(current.a, a11, a12, a21, a22, current.size);
-        SplitMatrix(current.b, b11, b12, b21, b22, current.size);
-
-        std::vector<double> temp1(half_sq);
-        std::vector<double> temp2(half_sq);
-
-        int child_start = tasks.size();
-
-        AddMatrix(a11, a22, temp1, half);
-        AddMatrix(b11, b22, temp2, half);
-        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
-
-        AddMatrix(a21, a22, temp1, half);
-        tasks.push_back({temp1, b11, {}, half, 0, task_id, 0});
-
-        SubtractMatrix(b12, b22, temp1, half);
-        tasks.push_back({a11, temp1, {}, half, 0, task_id, 0});
-
-        SubtractMatrix(b21, b11, temp1, half);
-        tasks.push_back({a22, temp1, {}, half, 0, task_id, 0});
-
-        AddMatrix(a11, a12, temp1, half);
-        tasks.push_back({temp1, b22, {}, half, 0, task_id, 0});
-
-        SubtractMatrix(a21, a11, temp1, half);
-        AddMatrix(b11, b12, temp2, half);
-        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
-
-        SubtractMatrix(a12, a22, temp1, half);
-        AddMatrix(b21, b22, temp2, half);
-        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
-
-        for (int i = 0; i < 7; ++i) {
-          ready_queue.push_back(child_start + i);
-        }
-      }
-    } else if (current.stage == 1) {
-      if (current.completed_children == 7) {
-        int half = current.size / 2;
-        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
-
-        std::vector<std::vector<double>> products(7);
-        int child_idx = 0;
-
-        for (size_t i = 0; i < tasks.size(); ++i) {
-          if (tasks[i].parent_id == task_id && tasks[i].stage == 2) {
-            products[child_idx] = tasks[i].result;
-            child_idx++;
-            if (child_idx == 7) {
-              break;
-            }
-          }
-        }
-
-        if (child_idx == 7) {
-          std::vector<double> c11(half_sq);
-          std::vector<double> c12(half_sq);
-          std::vector<double> c21(half_sq);
-          std::vector<double> c22(half_sq);
-
-          ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
-
-          std::vector<double> c(static_cast<std::size_t>(current.size) * static_cast<std::size_t>(current.size));
-          JoinMatrix(c, c11, c12, c21, c22, current.size);
-
-          current.result = c;
-          current.stage = 2;
-
-          if (current.parent_id != -1) {
-            tasks[current.parent_id].completed_children++;
-            if (tasks[current.parent_id].completed_children == 7) {
-              ready_queue.push_back(current.parent_id);
-            }
-          } else {
-            return current.result;
-          }
-        } else {
-          ready_queue.push_back(task_id);
-        }
-      } else {
-        ready_queue.push_back(task_id);
-      }
-    }
-  }
-
-  return std::vector<double>();
-}
-
-bool IlinAStrassenAlgorithmSEQ::RunImpl() {
-  const auto &input = GetInput();
-  auto &output = GetOutput();
-
-  int n = input.size;
-
-  if (n <= kThreshold) {
-    output.C = NaiveMultiply(input.A, input.B, n);
-    output.size = n;
-  } else {
-    std::size_t padded_size_sq = static_cast<std::size_t>(padded_size_) * static_cast<std::size_t>(padded_size_);
-    std::vector<double> a_padded(padded_size_sq, 0.0);
-    std::vector<double> b_padded(padded_size_sq, 0.0);
-
-    for (int i = 0; i < original_size_; ++i) {
-      for (int j = 0; j < original_size_; ++j) {
-        a_padded[(i * padded_size_) + j] = input.A[(i * n) + j];
-        b_padded[(i * padded_size_) + j] = input.B[(i * n) + j];
-      }
-    }
-
-    std::vector<double> c_padded = StrassenMultiply(a_padded, b_padded, padded_size_);
-
-    if (c_padded.empty()) {
-      return false;
-    }
-
-    output.C.resize(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) {
-      for (int j = 0; j < n; ++j) {
-        output.C[(i * n) + j] = c_padded[(i * padded_size_) + j];
-      }
-    }
-    output.size = n;
-  }
-
-  return true;
-}
-
-bool IlinAStrassenAlgorithmSEQ::PostProcessingImpl() {
-  return true;
-}
-
 void IlinAStrassenAlgorithmSEQ::AddMatrix(const std::vector<double> &a, const std::vector<double> &b,
                                           std::vector<double> &c, int n) {
   for (int i = 0; i < n * n; ++i) {
@@ -322,6 +126,233 @@ void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::
   AddMatrix(p1, p3, c22, half);
   SubtractMatrix(c22, p2, c22, half);
   AddMatrix(c22, p6, c22, half);
+}
+
+struct TaskState {
+  std::vector<double> a_part;
+  std::vector<double> b_part;
+  std::vector<double> result;
+  int size;
+  int parent_idx;
+  int child_count;
+  int stage;
+  bool completed;
+};
+
+static void ProcessStrassenTaskStage0Naive(TaskState& current, std::vector<TaskState>& tasks, 
+                                          std::vector<int>& ready_stack) {
+  std::vector<double> result = IlinAStrassenAlgorithmSEQ::NaiveMultiply(current.a_part, current.b_part, current.size);
+  current.result = std::move(result);
+  current.stage = 2;
+  current.completed = true;
+  
+  if (current.parent_idx != -1) {
+    tasks[current.parent_idx].child_count--;
+    if (tasks[current.parent_idx].child_count == 0) {
+      ready_stack.push_back(current.parent_idx);
+    }
+  }
+}
+
+static void ProcessStrassenTaskStage0Split(TaskState& current, int current_idx, 
+                                          std::vector<TaskState>& tasks, 
+                                          std::vector<int>& ready_stack) {
+  current.stage = 1;
+  current.child_count = 7;
+  
+  int half = current.size / 2;
+  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+  
+  std::vector<double> a11(half_sq);
+  std::vector<double> a12(half_sq);
+  std::vector<double> a21(half_sq);
+  std::vector<double> a22(half_sq);
+  std::vector<double> b11(half_sq);
+  std::vector<double> b12(half_sq);
+  std::vector<double> b21(half_sq);
+  std::vector<double> b22(half_sq);
+  
+  IlinAStrassenAlgorithmSEQ::SplitMatrix(current.a_part, a11, a12, a21, a22, current.size);
+  IlinAStrassenAlgorithmSEQ::SplitMatrix(current.b_part, b11, b12, b21, b22, current.size);
+  
+  std::vector<double> temp1(half_sq);
+  std::vector<double> temp2(half_sq);
+  
+  IlinAStrassenAlgorithmSEQ::AddMatrix(a11, a22, temp1, half);
+  IlinAStrassenAlgorithmSEQ::AddMatrix(b11, b22, temp2, half);
+  tasks.push_back({temp1, temp2, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::AddMatrix(a21, a22, temp1, half);
+  tasks.push_back({temp1, b11, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::SubtractMatrix(b12, b22, temp1, half);
+  tasks.push_back({a11, temp1, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::SubtractMatrix(b21, b11, temp1, half);
+  tasks.push_back({a22, temp1, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::AddMatrix(a11, a12, temp1, half);
+  tasks.push_back({temp1, b22, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::SubtractMatrix(a21, a11, temp1, half);
+  IlinAStrassenAlgorithmSEQ::AddMatrix(b11, b12, temp2, half);
+  tasks.push_back({temp1, temp2, {}, half, current_idx, 0, 0, false});
+  
+  IlinAStrassenAlgorithmSEQ::SubtractMatrix(a12, a22, temp1, half);
+  IlinAStrassenAlgorithmSEQ::AddMatrix(b21, b22, temp2, half);
+  tasks.push_back({temp1, temp2, {}, half, current_idx, 0, 0, false});
+  
+  for (int i = 0; i < 7; ++i) {
+    int child_idx = static_cast<int>(tasks.size()) - 7 + i;
+    ready_stack.push_back(child_idx);
+  }
+}
+
+static void ProcessStrassenTaskStage0(TaskState& current, int current_idx, 
+                                     std::vector<TaskState>& tasks, 
+                                     std::vector<int>& ready_stack) {
+  if (current.size <= 64) {  // kThreshold
+    ProcessStrassenTaskStage0Naive(current, tasks, ready_stack);
+  } else {
+    ProcessStrassenTaskStage0Split(current, current_idx, tasks, ready_stack);
+  }
+}
+
+static void ProcessStrassenTaskStage1Collect(TaskState& current, int current_idx, 
+                                            std::vector<TaskState>& tasks, 
+                                            std::vector<int>& ready_stack) {
+  std::vector<std::vector<double>> products(7);
+  int found = 0;
+  
+  for (std::size_t i = 0; i < tasks.size(); ++i) {
+    if (tasks[i].parent_idx == current_idx && tasks[i].completed) {
+      products[found] = tasks[i].result;
+      found++;
+      if (found == 7) break;
+    }
+  }
+  
+  if (found == 7) {
+    int half = current.size / 2;
+    std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+    
+    std::vector<double> c11(half_sq);
+    std::vector<double> c12(half_sq);
+    std::vector<double> c21(half_sq);
+    std::vector<double> c22(half_sq);
+    
+    IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
+    
+    std::vector<double> c(static_cast<std::size_t>(current.size) * static_cast<std::size_t>(current.size));
+    IlinAStrassenAlgorithmSEQ::JoinMatrix(c, c11, c12, c21, c22, current.size);
+    
+    current.result = c;
+    current.stage = 2;
+    current.completed = true;
+    
+    if (current.parent_idx != -1) {
+      tasks[current.parent_idx].child_count--;
+      if (tasks[current.parent_idx].child_count == 0) {
+        ready_stack.push_back(current.parent_idx);
+      }
+    }
+  } else {
+    ready_stack.push_back(current_idx);
+  }
+}
+
+static void ProcessStrassenTaskStage1Wait(int current_idx, std::vector<int>& ready_stack) {
+  ready_stack.push_back(current_idx);
+}
+
+static void ProcessStrassenTaskStage1(TaskState& current, int current_idx, 
+                                     std::vector<TaskState>& tasks, 
+                                     std::vector<int>& ready_stack) {
+  if (current.child_count == 0) {
+    ProcessStrassenTaskStage1Collect(current, current_idx, tasks, ready_stack);
+  } else {
+    ProcessStrassenTaskStage1Wait(current_idx, ready_stack);
+  }
+}
+
+std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
+                                                                const std::vector<double> &b, int n) {
+  if (n <= kThreshold) {
+    return NaiveMultiply(a, b, n);
+  }
+
+  std::vector<TaskState> tasks;
+  std::vector<int> ready_stack;
+  
+  tasks.push_back({a, b, {}, n, -1, 0, 0, false});
+  ready_stack.push_back(0);
+  
+  int iteration = 0;
+  const int max_iterations = 10000;
+  
+  while (!ready_stack.empty() && iteration++ < max_iterations) {
+    int current_idx = ready_stack.back();
+    ready_stack.pop_back();
+    
+    TaskState& current = tasks[current_idx];
+
+    if (current.stage == 0) {
+      ProcessStrassenTaskStage0(current, current_idx, tasks, ready_stack);
+    } else if (current.stage == 1) {
+      ProcessStrassenTaskStage1(current, current_idx, tasks, ready_stack);
+    }
+  }
+  
+  for (const auto& task : tasks) {
+    if (task.completed && task.parent_idx == -1) {
+      return task.result;
+    }
+  }
+  
+  return {};
+}
+
+bool IlinAStrassenAlgorithmSEQ::RunImpl() {
+  const auto &input = GetInput();
+  auto &output = GetOutput();
+
+  int n = input.size;
+
+  if (n <= kThreshold) {
+    output.C = NaiveMultiply(input.A, input.B, n);
+    output.size = n;
+  } else {
+    std::size_t padded_size_sq = static_cast<std::size_t>(padded_size_) * static_cast<std::size_t>(padded_size_);
+    std::vector<double> a_padded(padded_size_sq, 0.0);
+    std::vector<double> b_padded(padded_size_sq, 0.0);
+
+    for (int i = 0; i < original_size_; ++i) {
+      for (int j = 0; j < original_size_; ++j) {
+        a_padded[(i * padded_size_) + j] = input.A[(i * n) + j];
+        b_padded[(i * padded_size_) + j] = input.B[(i * n) + j];
+      }
+    }
+
+    std::vector<double> c_padded = StrassenMultiply(a_padded, b_padded, padded_size_);
+
+    if (c_padded.empty()) {
+      return false;
+    }
+
+    output.C.resize(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        output.C[(i * n) + j] = c_padded[(i * padded_size_) + j];
+      }
+    }
+    output.size = n;
+  }
+
+  return true;
+}
+
+bool IlinAStrassenAlgorithmSEQ::PostProcessingImpl() {
+  return true;
 }
 
 }  // namespace ilin_a_strassen_algorithm
