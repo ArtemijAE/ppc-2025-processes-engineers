@@ -12,7 +12,7 @@ namespace ilin_a_strassen_algorithm {
 
 class IlinARunPerfTestProcesses : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
-  static constexpr int kMatrixSize = 128;
+  static constexpr int kMatrixSize = 1000;
   InType input_data{};
 
   void SetUp() override {

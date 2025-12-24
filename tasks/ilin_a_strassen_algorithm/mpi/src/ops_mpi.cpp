@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -151,117 +152,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::NaiveMultiplySeq(const std::vecto
 
 std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vector<double> &a,
                                                                   const std::vector<double> &b, int n) {
-  if (n <= kThreshold) {
-    return NaiveMultiplySeq(a, b, n);
-  }
-
-  struct MatrixTask {
-    std::vector<double> a;
-    std::vector<double> b;
-    std::vector<double> result;
-    int size;
-    int stage;
-  };
-
-  std::vector<MatrixTask> stack;
-  std::vector<MatrixTask> results;
-
-  stack.push_back({a, b, {}, n, 0});
-
-  while (!stack.empty()) {
-    MatrixTask current = stack.back();
-    stack.pop_back();
-
-    if (current.stage == 0) {
-      if (current.size <= kThreshold) {
-        current.result = NaiveMultiplySeq(current.a, current.b, current.size);
-        results.push_back(current);
-        continue;
-      }
-
-      int half = current.size / 2;
-      std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
-
-      std::vector<double> a11(half_sq);
-      std::vector<double> a12(half_sq);
-      std::vector<double> a21(half_sq);
-      std::vector<double> a22(half_sq);
-      std::vector<double> b11(half_sq);
-      std::vector<double> b12(half_sq);
-      std::vector<double> b21(half_sq);
-      std::vector<double> b22(half_sq);
-
-      SplitMatrix(current.a, a11, a12, a21, a22, current.size);
-      SplitMatrix(current.b, b11, b12, b21, b22, current.size);
-
-      std::vector<double> temp1(half_sq);
-      std::vector<double> temp2(half_sq);
-
-      AddMatrix(a11, a22, temp1, half);
-      AddMatrix(b11, b22, temp2, half);
-      stack.push_back({temp1, temp2, {}, half, 0});
-
-      AddMatrix(a21, a22, temp1, half);
-      stack.push_back({temp1, b11, {}, half, 0});
-
-      SubtractMatrix(b12, b22, temp1, half);
-      stack.push_back({a11, temp1, {}, half, 0});
-
-      SubtractMatrix(b21, b11, temp1, half);
-      stack.push_back({a22, temp1, {}, half, 0});
-
-      AddMatrix(a11, a12, temp1, half);
-      stack.push_back({temp1, b22, {}, half, 0});
-
-      SubtractMatrix(a21, a11, temp1, half);
-      AddMatrix(b11, b12, temp2, half);
-      stack.push_back({temp1, temp2, {}, half, 0});
-
-      SubtractMatrix(a12, a22, temp1, half);
-      AddMatrix(b21, b22, temp2, half);
-      stack.push_back({temp1, temp2, {}, half, 0});
-
-      current.stage = 1;
-      stack.push_back(current);
-    } else {
-      bool has_results = results.size() >= 7;
-
-      if (has_results) {
-        std::vector<std::vector<double>> products(7);
-        for (int i = 0; i < 7; ++i) {
-          products[6 - i] = results.back().result;
-          results.pop_back();
-        }
-
-        int half = current.size / 2;
-        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
-
-        std::vector<double> c11(half_sq);
-        std::vector<double> c12(half_sq);
-        std::vector<double> c21(half_sq);
-        std::vector<double> c22(half_sq);
-
-        ComputeResultFromProducts(products[0], products[1], products[2], products[3], products[4], products[5],
-                                  products[6], half, c11, c12, c21, c22);
-
-        std::vector<double> c(static_cast<std::size_t>(current.size) * static_cast<std::size_t>(current.size));
-        JoinMatrix(c, c11, c12, c21, c22, current.size);
-
-        if (current.size == n) {
-          return c;
-        }
-        results.push_back({current.a, current.b, c, current.size, 2});
-      } else {
-        stack.push_back(current);
-      }
-    }
-  }
-
-  if (!results.empty()) {
-    return results.back().result;
-  }
-
-  return {};
+  return NaiveMultiplySeq(a, b, n);
 }
 
 std::tuple<int, int> IlinAStrassenAlgorithmMPI::CalculateMatrixRange(int total_matrices) const {
@@ -280,6 +171,7 @@ std::tuple<int, int> IlinAStrassenAlgorithmMPI::CalculateMatrixRange(int total_m
   }
 
   int end_matrix = start_matrix + matrices_to_compute;
+
   return std::make_tuple(start_matrix, end_matrix);
 }
 
@@ -334,24 +226,32 @@ void IlinAStrassenAlgorithmMPI::ComputeSingleProduct(int product_idx, const std:
 void IlinAStrassenAlgorithmMPI::GatherProductMatrix(const std::vector<double> &local_product,
                                                     std::vector<double> &buffer) const {
   int matrix_size = static_cast<int>(local_product.size());
-  buffer.resize(static_cast<std::size_t>(matrix_size) * static_cast<std::size_t>(world_size_));
-  MPI_Allgather(local_product.data(), matrix_size, MPI_DOUBLE, buffer.data(), matrix_size, MPI_DOUBLE, MPI_COMM_WORLD);
+
+  if (world_rank_ == 0) {
+    buffer.resize(static_cast<std::size_t>(matrix_size) * static_cast<std::size_t>(world_size_));
+  }
+
+  MPI_Gather(local_product.data(), matrix_size, MPI_DOUBLE, buffer.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 void IlinAStrassenAlgorithmMPI::MergeProductFromBuffer(const std::vector<double> &buffer, int proc_count,
                                                        int matrix_size, std::vector<double> &product) {
+  if (buffer.empty()) {
+    return;
+  }
+
   for (int proc = 0; proc < proc_count; proc++) {
     int offset = proc * matrix_size;
     bool has_data = false;
 
     for (int i = 0; i < matrix_size; i++) {
-      if (buffer[static_cast<std::size_t>(offset) + i] != 0.0) {
+      if (std::abs(buffer[static_cast<std::size_t>(offset) + i]) > 1e-12) {
         has_data = true;
         break;
       }
     }
 
-    if (has_data && product[0] == 0.0) {
+    if (has_data) {
       std::copy(buffer.begin() + offset, buffer.begin() + offset + matrix_size, product.begin());
       break;
     }
@@ -379,6 +279,8 @@ void IlinAStrassenAlgorithmMPI::ComputeResultFromProducts(const std::vector<doub
 
 std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenIterative(const std::vector<double> &a,
                                                                          const std::vector<double> &b, int n) {
+  MPI_Barrier(MPI_COMM_WORLD);
+
   if (n <= kThreshold) {
     return StrassenSequential(a, b, n);
   }
@@ -395,107 +297,102 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenIterative(const s
   std::vector<double> b21(half_sq);
   std::vector<double> b22(half_sq);
 
-  SplitMatrix(a, a11, a12, a21, a22, n);
-  SplitMatrix(b, b11, b12, b21, b22, n);
+  if (world_rank_ == 0) {
+    SplitMatrix(a, a11, a12, a21, a22, n);
+    SplitMatrix(b, b11, b12, b21, b22, n);
+  }
 
-  std::vector<double> p1;
-  std::vector<double> p2;
-  std::vector<double> p3;
-  std::vector<double> p4;
-  std::vector<double> p5;
-  std::vector<double> p6;
-  std::vector<double> p7;
+  MPI_Bcast(a11.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a12.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a21.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a22.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b11.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b12.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b21.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b22.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  std::vector<double> p1(half_sq, 0.0);
+  std::vector<double> p2(half_sq, 0.0);
+  std::vector<double> p3(half_sq, 0.0);
+  std::vector<double> p4(half_sq, 0.0);
+  std::vector<double> p5(half_sq, 0.0);
+  std::vector<double> p6(half_sq, 0.0);
+  std::vector<double> p7(half_sq, 0.0);
 
   auto [start_matrix, end_matrix] = CalculateMatrixRange(7);
 
   for (int matrix_idx = start_matrix; matrix_idx < end_matrix; matrix_idx++) {
     std::vector<double> result;
+    ComputeSingleProduct(matrix_idx, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
+
     switch (matrix_idx) {
       case 0:
-        ComputeSingleProduct(0, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p1 = std::move(result);
         break;
       case 1:
-        ComputeSingleProduct(1, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p2 = std::move(result);
         break;
       case 2:
-        ComputeSingleProduct(2, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p3 = std::move(result);
         break;
       case 3:
-        ComputeSingleProduct(3, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p4 = std::move(result);
         break;
       case 4:
-        ComputeSingleProduct(4, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p5 = std::move(result);
         break;
       case 5:
-        ComputeSingleProduct(5, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p6 = std::move(result);
         break;
       case 6:
-        ComputeSingleProduct(6, a11, a12, a21, a22, b11, b12, b21, b22, half, result);
         p7 = std::move(result);
-        break;
-      default:
         break;
     }
   }
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
   int matrix_size = half * half;
 
-  if (p1.empty()) {
-    p1.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p2.empty()) {
-    p2.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p3.empty()) {
-    p3.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p4.empty()) {
-    p4.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p5.empty()) {
-    p5.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p6.empty()) {
-    p6.resize(static_cast<std::size_t>(matrix_size), 0.0);
-  }
-  if (p7.empty()) {
-    p7.resize(static_cast<std::size_t>(matrix_size), 0.0);
+  std::vector<double> p1_total(half_sq, 0.0);
+  std::vector<double> p2_total(half_sq, 0.0);
+  std::vector<double> p3_total(half_sq, 0.0);
+  std::vector<double> p4_total(half_sq, 0.0);
+  std::vector<double> p5_total(half_sq, 0.0);
+  std::vector<double> p6_total(half_sq, 0.0);
+  std::vector<double> p7_total(half_sq, 0.0);
+
+  MPI_Reduce(p1.data(), p1_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p2.data(), p2_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p3.data(), p3_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p4.data(), p4_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p5.data(), p5_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p6.data(), p6_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(p7.data(), p7_total.data(), matrix_size, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+  if (world_rank_ == 0) {
+    p1 = std::move(p1_total);
+    p2 = std::move(p2_total);
+    p3 = std::move(p3_total);
+    p4 = std::move(p4_total);
+    p5 = std::move(p5_total);
+    p6 = std::move(p6_total);
+    p7 = std::move(p7_total);
   }
 
-  std::vector<double> p1_buffer;
-  std::vector<double> p2_buffer;
-  std::vector<double> p3_buffer;
-  std::vector<double> p4_buffer;
-  std::vector<double> p5_buffer;
-  std::vector<double> p6_buffer;
-  std::vector<double> p7_buffer;
-
-  GatherProductMatrix(p1, p1_buffer);
-  GatherProductMatrix(p2, p2_buffer);
-  GatherProductMatrix(p3, p3_buffer);
-  GatherProductMatrix(p4, p4_buffer);
-  GatherProductMatrix(p5, p5_buffer);
-  GatherProductMatrix(p6, p6_buffer);
-  GatherProductMatrix(p7, p7_buffer);
-
-  MergeProductFromBuffer(p1_buffer, world_size_, matrix_size, p1);
-  MergeProductFromBuffer(p2_buffer, world_size_, matrix_size, p2);
-  MergeProductFromBuffer(p3_buffer, world_size_, matrix_size, p3);
-  MergeProductFromBuffer(p4_buffer, world_size_, matrix_size, p4);
-  MergeProductFromBuffer(p5_buffer, world_size_, matrix_size, p5);
-  MergeProductFromBuffer(p6_buffer, world_size_, matrix_size, p6);
-  MergeProductFromBuffer(p7_buffer, world_size_, matrix_size, p7);
+  MPI_Bcast(p1.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p2.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p3.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p4.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p5.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p6.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(p7.data(), matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   std::vector<double> c11(half_sq);
   std::vector<double> c12(half_sq);
   std::vector<double> c21(half_sq);
   std::vector<double> c22(half_sq);
+
   ComputeResultFromProducts(p1, p2, p3, p4, p5, p6, p7, half, c11, c12, c21, c22);
 
   std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
@@ -637,6 +534,7 @@ std::vector<double> IlinAStrassenAlgorithmMPI::MultiplyMatrices(const std::vecto
   if (n <= kThreshold) {
     return DistributedNaiveMultiply(a, b, n);
   }
+
   return ParallelStrassen(a, b, n);
 }
 
