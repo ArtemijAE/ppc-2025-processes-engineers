@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -302,14 +301,14 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenIterative(const s
     SplitMatrix(b, b11, b12, b21, b22, n);
   }
 
-  MPI_Bcast(a11.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(a12.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(a21.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(a22.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(b11.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(b12.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(b21.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(b22.data(), half_sq, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a11.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a12.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a21.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a22.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b11.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b12.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b21.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b22.data(), static_cast<int>(half_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   std::vector<double> p1(half_sq, 0.0);
   std::vector<double> p2(half_sq, 0.0);
@@ -346,6 +345,8 @@ std::vector<double> IlinAStrassenAlgorithmMPI::ParallelStrassenIterative(const s
         break;
       case 6:
         p7 = std::move(result);
+        break;
+      default:
         break;
     }
   }
@@ -571,8 +572,8 @@ void IlinAStrassenAlgorithmMPI::PrepareLargeMatricesCase(std::vector<double> &a_
     b_padded.resize(padded_size_sq);
   }
 
-  MPI_Bcast(a_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Bcast(b_padded.data(), padded_size_ * padded_size_, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(a_padded.data(), static_cast<int>(padded_size_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b_padded.data(), static_cast<int>(padded_size_sq), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   auto c_padded = MultiplyMatrices(a_padded, b_padded, padded_size_);
 
