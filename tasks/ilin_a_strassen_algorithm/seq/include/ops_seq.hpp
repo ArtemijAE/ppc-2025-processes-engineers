@@ -31,7 +31,7 @@ class IlinAStrassenAlgorithmSEQ : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  std::vector<double> StrassenMultiply(const std::vector<double> &a, const std::vector<double> &b, int n);
+  static std::vector<double> StrassenMultiply(const std::vector<double> &a, const std::vector<double> &b, int n);
 
   int original_size_{};
   int padded_size_{};

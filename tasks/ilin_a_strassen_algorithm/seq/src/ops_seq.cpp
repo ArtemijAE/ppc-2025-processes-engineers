@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
@@ -139,8 +140,9 @@ struct TaskState {
   bool completed;
 };
 
-static void ProcessStrassenTaskStage0Naive(TaskState &current, std::vector<TaskState> &tasks,
-                                           std::vector<int> &ready_stack) {
+namespace {
+
+void ProcessStrassenTaskStage0Naive(TaskState &current, std::vector<TaskState> &tasks, std::vector<int> &ready_stack) {
   std::vector<double> result = IlinAStrassenAlgorithmSEQ::NaiveMultiply(current.a_part, current.b_part, current.size);
   current.result = std::move(result);
   current.stage = 2;
@@ -154,8 +156,8 @@ static void ProcessStrassenTaskStage0Naive(TaskState &current, std::vector<TaskS
   }
 }
 
-static void ProcessStrassenTaskStage0Split(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
-                                           std::vector<int> &ready_stack) {
+void ProcessStrassenTaskStage0Split(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
+                                    std::vector<int> &ready_stack) {
   current.stage = 1;
   current.child_count = 7;
 
@@ -207,23 +209,23 @@ static void ProcessStrassenTaskStage0Split(TaskState &current, int current_idx, 
   }
 }
 
-static void ProcessStrassenTaskStage0(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
-                                      std::vector<int> &ready_stack) {
-  if (current.size <= 64) {  // kThreshold
+void ProcessStrassenTaskStage0(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
+                               std::vector<int> &ready_stack) {
+  if (current.size <= 64) {
     ProcessStrassenTaskStage0Naive(current, tasks, ready_stack);
   } else {
     ProcessStrassenTaskStage0Split(current, current_idx, tasks, ready_stack);
   }
 }
 
-static void ProcessStrassenTaskStage1Collect(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
-                                             std::vector<int> &ready_stack) {
+void ProcessStrassenTaskStage1Collect(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
+                                      std::vector<int> &ready_stack) {
   std::vector<std::vector<double>> products(7);
   int found = 0;
 
-  for (std::size_t i = 0; i < tasks.size(); ++i) {
-    if (tasks[i].parent_idx == current_idx && tasks[i].completed) {
-      products[found] = tasks[i].result;
+  for (const auto &task : tasks) {
+    if (task.parent_idx == current_idx && task.completed) {
+      products[found] = task.result;
       found++;
       if (found == 7) {
         break;
@@ -260,18 +262,20 @@ static void ProcessStrassenTaskStage1Collect(TaskState &current, int current_idx
   }
 }
 
-static void ProcessStrassenTaskStage1Wait(int current_idx, std::vector<int> &ready_stack) {
+void ProcessStrassenTaskStage1Wait(int current_idx, std::vector<int> &ready_stack) {
   ready_stack.push_back(current_idx);
 }
 
-static void ProcessStrassenTaskStage1(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
-                                      std::vector<int> &ready_stack) {
+void ProcessStrassenTaskStage1(TaskState &current, int current_idx, std::vector<TaskState> &tasks,
+                               std::vector<int> &ready_stack) {
   if (current.child_count == 0) {
     ProcessStrassenTaskStage1Collect(current, current_idx, tasks, ready_stack);
   } else {
     ProcessStrassenTaskStage1Wait(current_idx, ready_stack);
   }
 }
+
+}  // namespace
 
 std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n) {

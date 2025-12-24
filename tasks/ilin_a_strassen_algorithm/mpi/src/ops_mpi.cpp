@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "ilin_a_strassen_algorithm/common/include/common.hpp"
@@ -223,7 +224,9 @@ std::vector<double> IlinAStrassenAlgorithmMPI::StrassenSequential(const std::vec
       current.stage = 1;
       stack.push_back(current);
     } else {
-      if (results.size() >= 7) {
+      bool has_results = results.size() >= 7;
+
+      if (has_results) {
         std::vector<std::vector<double>> products(7);
         for (int i = 0; i < 7; ++i) {
           products[6 - i] = results.back().result;
