@@ -8,6 +8,8 @@
 
 namespace ilin_a_strassen_algorithm {
 
+constexpr int kThreshold = 64;
+
 struct MatrixData {
   std::vector<double> A;
   std::vector<double> B;

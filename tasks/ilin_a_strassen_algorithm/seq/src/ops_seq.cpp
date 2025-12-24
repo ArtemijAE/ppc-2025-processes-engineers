@@ -62,101 +62,157 @@ std::vector<double> IlinAStrassenAlgorithmSEQ::NaiveMultiply(const std::vector<d
   return c;
 }
 
-std::vector<std::vector<double>> IlinAStrassenAlgorithmSEQ::ComputeStrassenProducts(
-    const std::vector<double> &a11, const std::vector<double> &a12, const std::vector<double> &a21,
-    const std::vector<double> &a22, const std::vector<double> &b11, const std::vector<double> &b12,
-    const std::vector<double> &b21, const std::vector<double> &b22, int half) {
-  std::vector<std::vector<double>> products(7);
-  std::vector<double> temp1(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
-  std::vector<double> temp2(static_cast<std::size_t>(half) * static_cast<std::size_t>(half));
-
-  AddMatrix(a11, a22, temp1, half);
-  AddMatrix(b11, b22, temp2, half);
-  products[0] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
-
-  AddMatrix(a21, a22, temp1, half);
-  products[1] = StrassenMultiply(temp1, b11, half);  // NOLINT(misc-no-recursion)
-
-  SubtractMatrix(b12, b22, temp1, half);
-  products[2] = StrassenMultiply(a11, temp1, half);  // NOLINT(misc-no-recursion)
-
-  SubtractMatrix(b21, b11, temp1, half);
-  products[3] = StrassenMultiply(a22, temp1, half);  // NOLINT(misc-no-recursion)
-
-  AddMatrix(a11, a12, temp1, half);
-  products[4] = StrassenMultiply(temp1, b22, half);  // NOLINT(misc-no-recursion)
-
-  SubtractMatrix(a21, a11, temp1, half);
-  AddMatrix(b11, b12, temp2, half);
-  products[5] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
-
-  SubtractMatrix(a12, a22, temp1, half);
-  AddMatrix(b21, b22, temp2, half);
-  products[6] = StrassenMultiply(temp1, temp2, half);  // NOLINT(misc-no-recursion)
-
-  return products;
-}
-
-void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::vector<double>> &products,
-                                                         std::vector<double> &c11, std::vector<double> &c12,
-                                                         std::vector<double> &c21, std::vector<double> &c22, int half) {
-  const auto &p1 = products[0];
-  const auto &p2 = products[1];
-  const auto &p3 = products[2];
-  const auto &p4 = products[3];
-  const auto &p5 = products[4];
-  const auto &p6 = products[5];
-  const auto &p7 = products[6];
-
-  AddMatrix(p1, p4, c11, half);
-  SubtractMatrix(c11, p5, c11, half);
-  AddMatrix(c11, p7, c11, half);
-
-  AddMatrix(p3, p5, c12, half);
-
-  AddMatrix(p2, p4, c21, half);
-
-  AddMatrix(p1, p3, c22, half);
-  SubtractMatrix(c22, p2, c22, half);
-  AddMatrix(c22, p6, c22, half);
-}
-
 std::vector<double> IlinAStrassenAlgorithmSEQ::StrassenMultiply(const std::vector<double> &a,
                                                                 const std::vector<double> &b, int n) {
-  // NOLINTBEGIN(misc-no-recursion)
   if (n <= kThreshold) {
     return NaiveMultiply(a, b, n);
   }
 
-  int half = n / 2;
-  std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+  struct Task {
+    std::vector<double> a;
+    std::vector<double> b;
+    std::vector<double> result;
+    int size;
+    int stage;  // 0: need to process, 1: waiting for children, 2: ready
+    int parent_id;
+    int completed_children;
+  };
 
-  std::vector<double> a11(half_sq);
-  std::vector<double> a12(half_sq);
-  std::vector<double> a21(half_sq);
-  std::vector<double> a22(half_sq);
-  std::vector<double> b11(half_sq);
-  std::vector<double> b12(half_sq);
-  std::vector<double> b21(half_sq);
-  std::vector<double> b22(half_sq);
+  std::vector<Task> tasks;
+  std::vector<int> ready_queue;
 
-  SplitMatrix(a, a11, a12, a21, a22, n);
-  SplitMatrix(b, b11, b12, b21, b22, n);
+  tasks.push_back({a, b, {}, n, 0, -1, 0});
+  ready_queue.push_back(0);
 
-  auto products = ComputeStrassenProducts(a11, a12, a21, a22, b11, b12, b21, b22, half);
+  int iteration = 0;
+  const int max_iterations = 10000;
 
-  std::vector<double> c11(half_sq);
-  std::vector<double> c12(half_sq);
-  std::vector<double> c21(half_sq);
-  std::vector<double> c22(half_sq);
+  while (!ready_queue.empty()) {
+    iteration++;
+    if (iteration > max_iterations) {
+      break;
+    }
 
-  ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
+    int task_id = ready_queue.back();
+    ready_queue.pop_back();
 
-  std::vector<double> c(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
-  JoinMatrix(c, c11, c12, c21, c22, n);
+    Task &current = tasks[task_id];
 
-  return c;
-  // NOLINTEND(misc-no-recursion)
+    if (current.stage == 0) {
+      if (current.size <= kThreshold) {
+        current.result = NaiveMultiply(current.a, current.b, current.size);
+        current.stage = 2;
+
+        if (current.parent_id != -1) {
+          tasks[current.parent_id].completed_children++;
+          if (tasks[current.parent_id].completed_children == 7) {
+            ready_queue.push_back(current.parent_id);
+          }
+        } else {
+          return current.result;
+        }
+      } else {
+        current.stage = 1;
+        current.completed_children = 0;
+
+        int half = current.size / 2;
+        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+
+        std::vector<double> a11(half_sq);
+        std::vector<double> a12(half_sq);
+        std::vector<double> a21(half_sq);
+        std::vector<double> a22(half_sq);
+        std::vector<double> b11(half_sq);
+        std::vector<double> b12(half_sq);
+        std::vector<double> b21(half_sq);
+        std::vector<double> b22(half_sq);
+
+        SplitMatrix(current.a, a11, a12, a21, a22, current.size);
+        SplitMatrix(current.b, b11, b12, b21, b22, current.size);
+
+        std::vector<double> temp1(half_sq);
+        std::vector<double> temp2(half_sq);
+
+        int child_start = tasks.size();
+
+        AddMatrix(a11, a22, temp1, half);
+        AddMatrix(b11, b22, temp2, half);
+        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
+
+        AddMatrix(a21, a22, temp1, half);
+        tasks.push_back({temp1, b11, {}, half, 0, task_id, 0});
+
+        SubtractMatrix(b12, b22, temp1, half);
+        tasks.push_back({a11, temp1, {}, half, 0, task_id, 0});
+
+        SubtractMatrix(b21, b11, temp1, half);
+        tasks.push_back({a22, temp1, {}, half, 0, task_id, 0});
+
+        AddMatrix(a11, a12, temp1, half);
+        tasks.push_back({temp1, b22, {}, half, 0, task_id, 0});
+
+        SubtractMatrix(a21, a11, temp1, half);
+        AddMatrix(b11, b12, temp2, half);
+        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
+
+        SubtractMatrix(a12, a22, temp1, half);
+        AddMatrix(b21, b22, temp2, half);
+        tasks.push_back({temp1, temp2, {}, half, 0, task_id, 0});
+
+        for (int i = 0; i < 7; ++i) {
+          ready_queue.push_back(child_start + i);
+        }
+      }
+    } else if (current.stage == 1) {
+      if (current.completed_children == 7) {
+        int half = current.size / 2;
+        std::size_t half_sq = static_cast<std::size_t>(half) * static_cast<std::size_t>(half);
+
+        std::vector<std::vector<double>> products(7);
+        int child_idx = 0;
+
+        for (size_t i = 0; i < tasks.size(); ++i) {
+          if (tasks[i].parent_id == task_id && tasks[i].stage == 2) {
+            products[child_idx] = tasks[i].result;
+            child_idx++;
+            if (child_idx == 7) {
+              break;
+            }
+          }
+        }
+
+        if (child_idx == 7) {
+          std::vector<double> c11(half_sq);
+          std::vector<double> c12(half_sq);
+          std::vector<double> c21(half_sq);
+          std::vector<double> c22(half_sq);
+
+          ComputeResultSubmatrices(products, c11, c12, c21, c22, half);
+
+          std::vector<double> c(static_cast<std::size_t>(current.size) * static_cast<std::size_t>(current.size));
+          JoinMatrix(c, c11, c12, c21, c22, current.size);
+
+          current.result = c;
+          current.stage = 2;
+
+          if (current.parent_id != -1) {
+            tasks[current.parent_id].completed_children++;
+            if (tasks[current.parent_id].completed_children == 7) {
+              ready_queue.push_back(current.parent_id);
+            }
+          } else {
+            return current.result;
+          }
+        } else {
+          ready_queue.push_back(task_id);
+        }
+      } else {
+        ready_queue.push_back(task_id);
+      }
+    }
+  }
+
+  return std::vector<double>();
 }
 
 bool IlinAStrassenAlgorithmSEQ::RunImpl() {
@@ -181,6 +237,10 @@ bool IlinAStrassenAlgorithmSEQ::RunImpl() {
     }
 
     std::vector<double> c_padded = StrassenMultiply(a_padded, b_padded, padded_size_);
+
+    if (c_padded.empty()) {
+      return false;
+    }
 
     output.C.resize(static_cast<std::size_t>(n) * static_cast<std::size_t>(n));
     for (int i = 0; i < n; ++i) {
@@ -238,6 +298,30 @@ void IlinAStrassenAlgorithmSEQ::JoinMatrix(std::vector<double> &a, const std::ve
       a[((i + half) * n) + (j + half)] = a22[(i * half) + j];
     }
   }
+}
+
+void IlinAStrassenAlgorithmSEQ::ComputeResultSubmatrices(const std::vector<std::vector<double>> &products,
+                                                         std::vector<double> &c11, std::vector<double> &c12,
+                                                         std::vector<double> &c21, std::vector<double> &c22, int half) {
+  const auto &p1 = products[0];
+  const auto &p2 = products[1];
+  const auto &p3 = products[2];
+  const auto &p4 = products[3];
+  const auto &p5 = products[4];
+  const auto &p6 = products[5];
+  const auto &p7 = products[6];
+
+  AddMatrix(p1, p4, c11, half);
+  SubtractMatrix(c11, p5, c11, half);
+  AddMatrix(c11, p7, c11, half);
+
+  AddMatrix(p3, p5, c12, half);
+
+  AddMatrix(p2, p4, c21, half);
+
+  AddMatrix(p1, p3, c22, half);
+  SubtractMatrix(c22, p2, c22, half);
+  AddMatrix(c22, p6, c22, half);
 }
 
 }  // namespace ilin_a_strassen_algorithm

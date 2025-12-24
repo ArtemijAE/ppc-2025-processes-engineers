@@ -24,7 +24,7 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   std::vector<double> MultiplyMatrices(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> DistributedNaiveMultiply(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> ParallelStrassen(const std::vector<double> &a, const std::vector<double> &b, int n);
-  std::vector<double> ParallelStrassenRecursive(const std::vector<double> &a, const std::vector<double> &b, int n);
+  std::vector<double> ParallelStrassenIterative(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> StrassenSequential(const std::vector<double> &a, const std::vector<double> &b, int n);
   static std::vector<double> NaiveMultiplySeq(const std::vector<double> &a, const std::vector<double> &b, int n);
   static void AddMatrix(const std::vector<double> &a, const std::vector<double> &b, std::vector<double> &c, int n);
