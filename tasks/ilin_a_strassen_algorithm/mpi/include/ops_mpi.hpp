@@ -25,7 +25,7 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   std::vector<double> DistributedNaiveMultiply(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> ParallelStrassen(const std::vector<double> &a, const std::vector<double> &b, int n);
   std::vector<double> ParallelStrassenIterative(const std::vector<double> &a, const std::vector<double> &b, int n);
-  std::vector<double> StrassenSequential(const std::vector<double> &a, const std::vector<double> &b, int n);
+  static std::vector<double> StrassenSequential(const std::vector<double> &a, const std::vector<double> &b, int n);
 
   static std::vector<double> NaiveMultiplySeq(const std::vector<double> &a, const std::vector<double> &b, int n);
   static void AddMatrix(const std::vector<double> &a, const std::vector<double> &b, std::vector<double> &c, int n);
@@ -46,11 +46,11 @@ class IlinAStrassenAlgorithmMPI : public BaseTask {
   static void MergeProductFromBuffer(const std::vector<double> &buffer, int proc_count, int matrix_size,
                                      std::vector<double> &product);
 
-  void ComputeResultFromProducts(const std::vector<double> &p1, const std::vector<double> &p2,
-                                 const std::vector<double> &p3, const std::vector<double> &p4,
-                                 const std::vector<double> &p5, const std::vector<double> &p6,
-                                 const std::vector<double> &p7, int half, std::vector<double> &c11,
-                                 std::vector<double> &c12, std::vector<double> &c21, std::vector<double> &c22);
+  static void ComputeResultFromProducts(const std::vector<double> &p1, const std::vector<double> &p2,
+                                        const std::vector<double> &p3, const std::vector<double> &p4,
+                                        const std::vector<double> &p5, const std::vector<double> &p6,
+                                        const std::vector<double> &p7, int half, std::vector<double> &c11,
+                                        std::vector<double> &c12, std::vector<double> &c21, std::vector<double> &c22);
   [[nodiscard]] std::tuple<int, int, int> CalculateRowDistribution(int n) const;
 
   static std::vector<double> ComputeLocalRows(const std::vector<double> &a, const std::vector<double> &b, int n,
